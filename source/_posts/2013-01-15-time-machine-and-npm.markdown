@@ -1,15 +1,15 @@
 ---
 layout: post
-title: "Time Machine and NPM"
+title: "Time Machine and npm"
 date: 2013-01-15 22:34
 comments: false
 categories: 
 ---
 
-Do you develop [NPM][] modules on Mac OS X?  Do you also use Time Machine to
+Do you develop [npm][] modules on Mac OS X?  Do you also use Time Machine to
 backup your work?
 
-[NPM]: http://npmjs.org
+[npm]: http://npmjs.org
 
 If you answered yes to both those questions, then there is a good chance you
 will be looking at this dialogue box at some point.
