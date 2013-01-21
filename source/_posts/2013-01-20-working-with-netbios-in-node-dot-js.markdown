@@ -17,22 +17,26 @@ I've come up with.
 The first step to finding or advertising a NetBIOS name is to start up a
 [netbios-name-service][] instance.
 
+``` javascript
     var NBService = require('netbios-name-service');
 
     var nameService = new NBService();
     nameService.start(function() {
       console.log('NetBIOS name service started');
     });
+```
 
 Then, if you want to search for a service, like say a printer, you can
 execute the following code.
 
+``` javascript
     var NBName = require('netbios-name');
 
     var queryName = new NBName({name: 'PRINTER'});
     nameService.find(queryName, function(error, address) {
       console.log('Found NetBIOS name [' + queryName + '] at [' + address + ']');
     });
+```
 
 Note, you must use the [netbios-name][] module in order to properly define
 names in order to search, advertise, or perform other operations.  This module
@@ -44,8 +48,10 @@ For the problem at hand, however, I don't need to search for a name. Instead
 I want to advertise the node.js server via NetBIOS so that the scanner can
 push files to us.
 
+``` javascript
     var myName = new NBName({name: 'XYKON-2'});
     nameService.add({nbname: myName});
+```
 
 This causes the service to monitor UDP port 137 for broadcast queries looking
 for the name `XYKON-2`.  If a query occurs, then the service will automatically
@@ -57,6 +63,7 @@ NetBIOS traffic containing the actual file operations?
 To deal with this part of the problem we need to use the [netbios-session][]
 module.  Here is code to receive incoming NetBIOS sessions.
 
+``` javascript
     var net = require('net');
     var NBSession = require('netbios-session');
 
@@ -75,6 +82,7 @@ module.  Here is code to receive incoming NetBIOS sessions.
     });
 
     server.listen(139);
+```
 
 The [netbios-session][] class is essentially a wrapper around a TCP socket.
 After calling `new` to create a new instance, you need to call `connect()`
@@ -96,14 +104,17 @@ session negotiation that normally occurs.
 So, to achieve our forwarding we want to create a second session to port
 445 using the `'direct'` constructor option.
 
+``` javascript
     var sessionOut = new Session({direct: true});
     sessionOut.connect(445, '127.0.0.1');
+```
 
 After this, we can take messages we receive from `sessionIn` events and pass
 them straight to `'sessionOut.write()'`.  Since SMB is bidirectional, we also
 need to pass messages in the reverse direction.  With a bit of back-pressure
 logic sprinkled in, this code looks like the following:
 
+``` javascript
     sessionIn.on('message', _forward.bind(null, sessionOut, sessionIn));
     sessionOut.on('message', _forward.bind(null, sessionIn, sessionOut));
 
@@ -114,9 +125,11 @@ logic sprinkled in, this code looks like the following:
         dst.once('drain', src.resume.bind(src));
       }
     }
+```
 
 Putting all the pieces together we end up with the following.
 
+``` javascript
     'use strict';
 
     var NBService = require('netbios-name-service');
@@ -168,6 +181,7 @@ Putting all the pieces together we end up with the following.
       var myName = new NBName({name: NAME});
       nameService.add({nbname: myName});
     });
+```
 
 We now have a fully functional proxy server for connecting devices that only
 speak NetBIOS up to modern, direct SMB servers.
@@ -179,7 +193,9 @@ with the destination.  It turns out, the new Mac OS X SMB server has some
 
 Looking in the log I found this:
 
+```
     smbd[91973]: 127.0.0.1 SMB client not supported - Unicode strings are required
+```
 
 Unfortunately this implementation is not even a temporary work around
 for my problem since the scanner doesn't know how to talk Unicode.
