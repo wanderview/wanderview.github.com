@@ -129,58 +129,66 @@ logic sprinkled in, this code looks like the following:
 
 Putting all the pieces together we end up with the following.
 
-``` javascript
-    'use strict';
+``` javascript netbios-fwd.js http://www.github.com/wanderview/fileshift/blob/master/netbios-fwd.js Source File
+'use strict';
 
-    var NBService = require('netbios-name-service');
-    var NBSession = require('netbios-session');
-    var NBName = require('netbios-name');
-    var net = require('net');
+var NBService = require('netbios-name-service');
+var NBSession = require('netbios-session');
+var NBName = require('netbios-name');
+var net = require('net');
 
-    var NAME = 'XYKON-2';
-    var FWD_PORT = 445;
-    var FWD_HOST = '127.0.0.1';
+var NAME = 'XYKON-2';
+var SCOPE_ID = 'example.com';
+var FWD_PORT = 445;
+var FWD_HOST = '127.0.0.1';
 
-    var server = net.createServer(function(socket) {
-      var sessionIn = new NBSession({paused: true, autoAccept: true});
+var server = net.createServer(function(socket) {
+  var sessionIn = new NBSession({paused: true, autoAccept: true});
 
-      sessionIn.on('connect', function() {
-        var sessionOut = new NBSession({direct: true});
+  sessionIn.on('connect', function() {
+    var sessionOut = new NBSession({direct: true});
 
-        var errorHandler = function(error) {
-          console.log(error);
-          sessionIn.end();
-          sessionOut.end();
-        };
-        sessionIn.on('error', errorHandler);
-        sessionOut.on('error', errorHandler);
+    var endHandler = function() {
+      sessionIn.end();
+      sessionOut.end();
+    };
+    var errorHandler = function(error) {
+      console.log(error);
+      endHandler();
+    };
 
-        sessionIn.on('message', _forward.bind(null, sessionOut, sessionIn));
-        sessionOut.on('message', _forward.bind(null, sessionIn, sessionOut));
+    sessionIn.on('end', endHandler);
+    sessionOut.on('end', endHandler);
 
-        sessionOut.on('connect', sessionIn.resume.bind(sessionIn));
+    sessionIn.on('error', errorHandler);
+    sessionOut.on('error', errorHandler);
 
-        sessionOut.connect(FWD_PORT, FWD_HOST);
-      });
+    sessionIn.on('message', _forward.bind(null, sessionOut, sessionIn));
+    sessionOut.on('message', _forward.bind(null, sessionIn, sessionOut));
 
-      sessionIn.attach(socket);
-    });
+    sessionOut.on('connect', sessionIn.resume.bind(sessionIn));
 
-    function _forward(dst, src, msg) {
-      var flushed = dst.write(msg);
-      if (!flushed) {
-        src.pause();
-        dst.once('drain', src.resume.bind(src));
-      }
-    }
+    sessionOut.connect(FWD_PORT, FWD_HOST);
+  });
 
-    server.listen(139);
+  sessionIn.attach(socket);
+});
 
-    var nameService = new NBService();
-    nameService.start(function() {
-      var myName = new NBName({name: NAME});
-      nameService.add({nbname: myName});
-    });
+function _forward(dst, src, msg) {
+  var flushed = dst.write(msg);
+  if (!flushed) {
+    src.pause();
+    dst.once('drain', src.resume.bind(src));
+  }
+}
+
+server.listen(139);
+
+var nameService = new NBService();
+nameService.start(function() {
+  var myName = new NBName({name: NAME, scopeId: SCOPE_ID, suffix: 0x20});
+  nameService.add({nbname: myName});
+});
 ```
 
 We now have a fully functional proxy server for connecting devices that only
