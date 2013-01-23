@@ -219,7 +219,7 @@ All the modules used in this post are available on GitHub and npm:
 * [netbios-name-service][]
 * [netbios-session][]
 
-The end script is available on Github in the [fileshift][] project.
+The end script is available on Github in the [FileShift][] project.
 
 [dispute between my Xerox scanner and Mac OS X]: /blog/2013/01/13/xerox-plus-apple-equals-equals-equals-node-dot-js/
 [node.js]: http://nodejs.org
@@ -228,4 +228,4 @@ The end script is available on Github in the [fileshift][] project.
 [netbios-name-service]: http://www.github.com/wanderview/node-netbios-name-service#readme
 [netbios-session]: http://www.github.com/wanderview/node-netbios-session#readme
 [additional restrictions]: http://support.apple.com/kb/HT4698?viewlocale=en_US
-[fileshift]: http://www.github.com/wanderview/fileshift
+[FileShift]: http://www.github.com/wanderview/fileshift
