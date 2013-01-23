@@ -201,7 +201,7 @@ with the destination.  It turns out, the new Mac OS X SMB server has some
 
 Looking in the log I found this:
 
-```
+``` bash
     smbd[91973]: 127.0.0.1 SMB client not supported - Unicode strings are required
 ```
 
@@ -219,6 +219,8 @@ All the modules used in this post are available on GitHub and npm:
 * [netbios-name-service][]
 * [netbios-session][]
 
+The end script is available on Github in the [fileshift][] project.
+
 [dispute between my Xerox scanner and Mac OS X]: /blog/2013/01/13/xerox-plus-apple-equals-equals-equals-node-dot-js/
 [node.js]: http://nodejs.org
 [NetBIOS]: http://tools.ietf.org/rfc/rfc1001.txt
@@ -226,3 +228,4 @@ All the modules used in this post are available on GitHub and npm:
 [netbios-name-service]: http://www.github.com/wanderview/node-netbios-name-service#readme
 [netbios-session]: http://www.github.com/wanderview/node-netbios-session#readme
 [additional restrictions]: http://support.apple.com/kb/HT4698?viewlocale=en_US
+[fileshift]: http://www.github.com/wanderview/fileshift
