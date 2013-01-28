@@ -36,7 +36,7 @@ on end.
 
 My experience, however, has been that this rule is just the right amount of
 motivation to get me to open the editor at the end of a long day.  Then,
-once I'm in the code , I will typically end up working on a larger feature
+once I'm in the code, I will typically end up working on a larger feature
 instead.  My fifteen-minute commit turns into a two-hour coding session that
 makes significant progress.
 
