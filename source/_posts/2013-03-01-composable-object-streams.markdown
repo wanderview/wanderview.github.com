@@ -130,6 +130,13 @@ Finally, all of these composable object streams are implemented using a
 new base class module called [object-transform][].  It makes it fairly easy
 to write these kinds of transformations.
 
+Of course, this still leaves me with my first issue.  The [dgram][] core
+module still does not provide a streams2 API.  If this message structure makes
+sense, however, it should now be possible to provide this API without losing
+the `rinfo` meta-data provided in the current `'message'` event.  UDP wouldn't
+benefit from the back pressure improvements, but this would allow `dgram` to
+easily `pipe()` into other composable stream modules.
+
 Again, if you an opinion on if this is useful or how it can be improved, please
 comment on the [gist][] or send me a [tweet][].
 
