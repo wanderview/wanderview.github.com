@@ -126,7 +126,7 @@ Oh, and I did finally implement the `dgram` mock object.  See the
 top of the new [ether-stream][] and [ip-stream][].  And `ip-stream` does
 indeed now support [fragmentation reassembly][].
 
-Finally, all of these composable object streams are implemented using a
+All of these composable object streams are implemented using a
 new base class module called [object-transform][].  It makes it fairly easy
 to write these kinds of transformations.
 
