@@ -1,2 +1,20 @@
 // This File is imported last, and will override other styles in the cascade
 // Add styles here to make changes without digging in too much
+
+/*
+ul {
+  list-style: circle inside;
+}
+*/
+
+.hero {
+  background-blend-mode: overlay;
+}
+
+ol {
+  list-style-type: decimal;
+}
+
+ul {
+  list-style-type: circle;
+}
