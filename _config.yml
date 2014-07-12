@@ -3,11 +3,11 @@
 # ----------------------- #
 
 url: http://blog.wanderview.com
-title: Wanderview
-subtitle:
+title: wanderview
+subtitle: dubious content from ben kelly
 author: Ben Kelly
 simple_search: https://google.com/search
-description: "Ben Kelly is a software engineer at Mozilla."
+description: "I'm ridiculously fortunate to be paid to work on open source software at Mozilla.<br/>See my <a href='https://mozillians.org/en-US/u/bkelly/'>Mozillians profile</a> for more contact information."
 
 # Default date format is "ordinal" (resulting in "July 22nd 2007")
 # You can customize the format as defined in
