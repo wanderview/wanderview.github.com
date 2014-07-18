@@ -1,20 +1,20 @@
 // This File is imported last, and will override other styles in the cascade
 // Add styles here to make changes without digging in too much
 
-/*
-ul {
-  list-style: circle inside;
-}
-*/
-
-.hero {
-  background-blend-mode: overlay;
-}
-
-ol {
+.article-list article ol {
   list-style-type: decimal;
+  list-style-position: outside;
+  font-size: 18px;
+  color: #666665;
+  line-height: 1.2;
+  padding-left: 2em;
 }
 
-ul {
+.article-list article ul {
   list-style-type: circle;
+  list-style-position: outside;
+  font-size: 18px;
+  color: #666665;
+  line-height: 1.2;
+  padding-left: 2em;
 }
