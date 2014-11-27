@@ -1,7 +1,7 @@
 // This File is imported last, and will override other styles in the cascade
 // Add styles here to make changes without digging in too much
 
-.article-list article ol {
+article ol {
   list-style-type: decimal;
   list-style-position: outside;
   font-size: 18px;
@@ -10,7 +10,7 @@
   padding-left: 2em;
 }
 
-.article-list article ul {
+article ul {
   list-style-type: circle;
   list-style-position: outside;
   font-size: 18px;
