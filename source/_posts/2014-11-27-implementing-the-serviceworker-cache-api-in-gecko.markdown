@@ -157,6 +157,10 @@ High Level Design
 
 {% img right /images/cache_high_level_design.png %}
 
+Lorem ipsum
+
+{% img right /images/cache_singleton_manager.png %}
+
 CacheStorage.open()
 -------------------
 {% img right /images/cache_open_sequence.png %}
