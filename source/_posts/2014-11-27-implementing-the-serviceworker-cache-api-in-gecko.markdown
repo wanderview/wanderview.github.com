@@ -155,21 +155,266 @@ different options for Cache:
 High Level Design
 =================
 
-{% img right /images/cache_high_level_design.png %}
 
 Lorem ipsum
 
-{% img right /images/cache_singleton_manager.png %}
+{% img /images/cache_singleton_manager.png %}
 
-CacheStorage.open()
--------------------
-{% img right /images/cache_open_sequence.png %}
+Building Blocks
+---------------
+The Cache API is implemented in C++ based on the following Gecko primitives:
 
-Cache.match()
--------------
-{% img right /images/cache_match_sequence.png %}
+* **WebIDL DOM Binding**
+
+    All new DOM objects in gecko now use our new [WebIDL bindings][].
+
+* **PBackground IPC**
+
+    [PBackground][] is an IPC facility that connects a child actor to a parent
+    actor.  The parent actor is always in the parent process.  PBackground,
+    however, allows the child actor to exist in either a remote child content
+    process or within the same parent process.  This allows us to build
+    services that support both [electrolysis][] (e10s) and our more traditional
+    single process model.
+
+    Another advantage of PBackground is that the IPC calls are handled by a
+    worker thread rather than the parent process main thread.  This helps
+    avoid stalls due to other main thread work.
+
+* **Quota Manager**
+
+    [Quota Manager][] is responsible for managing the disk space used by web
+    content.  It determines when quota limits have been reached and will
+    automatically delete old data when necessary.
+
+* **SQLite**
+
+    [mozStorage][] is an API that provides access to an SQLite database.
+
+* **File System**
+
+    Finally, the Cache uses raw files in the file system.
+
+Alternatives
+------------
+We did consider a couple alternatives to implementing a new storage engine for
+Cache.  Mainly, we thought about using the existing HTTP cache or building on
+top of IndexedDB.  For various reasons, however, we chose to build on top of
+these primitives instead.  Ultimately it came down to the Cache spec not quite
+lining up with these solutions.
+
+For example, HTTP cache makes optimizations such that it only stores a single
+resource for a given URL while the Cache API allows multiple Responses to be
+stored for a URL.  In addition, the HTTP cache doesn't use the quota management
+system and adding it would be a significant amount of work.
+
+IndexedDB, on the other hand, is based on structured cloning which does not
+currently support streaming data.  Given that Responses could be quite large
+and come in from the network slowly, we thought streaming was a priority to
+reduce the amount of required memory.  While not a technical issue, IndexedDB
+was also undergoing a significant rewrite at the time which we felt would have
+delays Cache implementation.
+
+10,000 Foot View
+----------------
+With those primitives in mind, the overall structure of the Cache implementation
+looks like this:
+
+{% img /images/cache_high_level_design.png %}
+
+Here we see from left-to-right:
+
+* **JS Script**
+
+    Web content running in a JavaScript context on the far left.  This could be
+    in a ServiceWorker, a normal Web Worker, or on the main thread.
+
+* **DOM Object**
+
+    The script calls into the C++ DOM object using the [WebIDL bindings][].
+    This layer does some argument validation and conversion, but is mostly just
+    a pass through to the other layers.  Since most of the Cache API is
+    asynchronous the DOM object also returns a [Promise][].  A unique RequestId
+    is passed through to the other layers and used to find the Promise on
+    completion.
+
+* **Child and Parent IPC Actors**
+
+    The connection between the processes is represented by a child and a parent
+    actor.  These have a one-to-one correlation.  In the Cache API request
+    messages are sent from the child-to-parent and response messages are
+    sent back from the parent-to-child.  All of these messages are asynchronous
+    and non-blocking.
+
+* **Manager**
+
+    This where things start to get a bit more interesting.  The Cache spec
+    requires each origin to get its own, unique CacheStorage instance.  This
+    is accomplished by creating a separate per-origin Manager object.  These
+    Manager objects can come and go as DOM objects are used and the garbage
+    collected, but there is only ever one Manager for each origin.
+
+* **Context**
+
+    When a Manager has a disk operation to perform it first needs to take a
+    number of stateful steps to configure the QuotaManager properly.  All of
+    this logic is wrapped up in what is called the Context.  I'll go into
+    more detail on this later, but suffice it to say that the Context handles
+    all the QuotaManager nitty gritty and then executes an Action at the
+    right time.
+
+* **Action**
+
+    An Action is essentially a command object which performs a set of IO
+    operations within a Context and then asynchronously calls back to the
+    Manager when they are complete.  There are many different Action objects,
+    but in general you can think of each Cache method, like `match()` or
+    `put()`, having its own Action.
+
+* **File System**
+
+    Finally, the Action objects access the file system through the SQLite
+    database, file streams, or the nsIFile interface.
+
+Yak Trace
+---------
+Now that we have the lay of the land, lets trace what happens in Cache when
+you do something like this:
+
+```
+// photo by aldisley - https://www.flickr.com/photos/disley/
+var ship = 'https://farm4.staticflickr.com/3476/3766603589_7f922af174_o_d.jpg';
+
+var legoBox;
+Promise.all([
+  fetch(ship),
+  caches.open('legos')
+]).then(function(results) {
+  var response = results[0];
+  legoBox = results[1];
+  return legoBox.put(ship, response);
+}).then(function() {
+  return legoBox.match(ship);
+}).then(function(response) {
+  // fly around
+});
+```
+
+While it might seem the first Cache operation is `caches.open()`, its actually
+just accessing `caches`.  When the `caches` attribute is first accessed on the
+global we create the CacheStorage DOM object and IPC actors.
+
+{% img /images/cache_create_actor.png %}
+
+I've numbered each step in order to show the sequence of events.  These steps
+are roughly:
+
+1. The global WebIDL binding for `caches` creates a new CacheStorage object
+   and returns it immediately to the script.
+2. Asynchronously, the CacheStorage object creates a new child IPC actor.  Since
+   this may not complete immediately, any requests coming in will be queued
+   until actor is ready.  Of course, since all the operations use Promises, this
+   queueing is transparent to the content script.
+3. The child actor in turn sends a message to the parent process to create a
+   corresponding parent actor.  This message includes the [principal][]
+   describing the content script's origin and other identifying information.
+4. Before permitting any actual work to take place the principal provided to
+   the actor must be verified.  For various reasons this can only be done on
+   the main thread.  So an asynchronous operation is triggered to do examine
+   the principal and any operations coming in are queued.
+5. Once the principal is verified we return to the worker thread.
+6. Assuming verification succeeded, then the origin's Manager can now be
+   accessed or created.  (This is actually deferred until the first operation,
+   though.)
+
+Now that we have the `caches` object we can get on with the `open()`.  This
+sequence of steps is more complex:
+
+{% img /images/cache_open_sequence.png %}
+
+There are a lot more steps here.  To avoid making this blog post any more
+boring than necessary, I'll focus on just the interesting ones.
+
+As with the creation trace above, **steps 1 to 4** are basically just passing
+the `open()` arguments across to the Manager.  Your basic digital plumbing at
+work.
+
+**Steps 5 and 6** make sure the Context exists and schedules an Action to
+run on the IO thread.
+
+Next, in **step 7**, the Action will perform the actual work involved.  It
+must find the Cache if it already exists or create a new Cache.  This basically
+involves reading and writing an entry in the SQLite database.  The result is
+a unique CacheId.
+
+**Steps 8 to 11** essentially just return the CacheId back to the actor layer.
+
+You may have noticed we skipped step 10 fiddling with the Context. I'll get to
+that below in the Manager/Context deep dive.
+
+At this point we need to create a new actor for the CacheId.  This Cache actor
+can then be passed back to the child process where it gets a child actor.
+Finally a Cache DOM object is constructed and used to resolve the Promise
+returned to the JS script in first step.  All of this occurs in **steps 12 to
+17**.
+
+On the off chance you're still reading this section, the script next performs
+a `put()` on the cache:
+
+{% img /images/cache_put_sequence.png %}
+
+This trace looks similar to the last with the main difference occuring in the
+Action on the right.  While this is true, its important to note that the
+IPC serialization in this case includes a data stream for the Response body.
+This stream serialization occurs in different ways depending on the source,
+but the main thing to understand is that the body data may not all be available
+when the `put()` occurrs.  We may just have the first few bytes and will have
+to wait for further data to come in.
+
+With that in mind the Action needs to do the following:
+
+* Stream body data to files on disk.  This happens asynchronously on the IO
+  thread.  The Action and the Context are kept alive this entire time.
+* Update the SQLite database to reflect the new Request/Response pair with
+  a file name pointer to the body.
+
+All of the result steps are essentially just there to indicate completion
+as `put()` resolves undefined in the success case.
+
+Finally the script can use `match()` to read the data back out of the Cache:
+
+{% img /images/cache_match_sequence.png %}
+
+In this trace the Action must first query the SQLite tables to determine if
+the Request exists in the Cache.  If it does, then it opens a stream to the
+body file.
+
+Its important to note, again, that this is just opening a stream.  The Action
+is only accessing the file system directory structure and opening a file
+descriptor to the body.  Its not actually reading any of the data for the
+body yet.
+
+Once the matched Response data and body file stream are passed back to the
+parent actor, we must create an extra actor for the stream.  This actor is
+then passed back to the child process and used to create a ReadStream.
+
+A ReadStream is a wrapper around the body file stream.  This wrapper will
+send a message back to the parent whenever the stream is closed.  In addition,
+it allows the Manager to signal the stream that a shutdown is occuring and
+the stream should be immediately closed.
+
+The body file stream itself is serialized back to the child process by
+dup()'ing the file descriptor opened by the Action.
+
+Ultimately the body file data is read from the stream when the content script
+calls `Response.text()` or one of the other body consumption methods.
 
 [fetch]: https://fetch.spec.whatwg.org/
 [response]: https://fetch.spec.whatwg.org/#response-class
 [cache]: https://slightlyoff.github.io/ServiceWorker/spec/service_worker/index.html#cache-objects
 [primer]: http://jakearchibald.com/2014/service-worker-first-draft/
+[WebIDL bindings]:
+[PBackground]:
+[electrolysis]:
+[Quota Manager]:
+[mozStorage]:
