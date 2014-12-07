@@ -16,7 +16,7 @@ high-level description of how things are put together.
 <!--more-->
 
 Building Blocks
----------------
+===============
 The Cache API is implemented in C++ based on the following Gecko primitives:
 
 * **WebIDL DOM Binding**
@@ -51,7 +51,7 @@ The Cache API is implemented in C++ based on the following Gecko primitives:
     Finally, the Cache uses raw files in the file system.
 
 Alternatives
-------------
+============
 We did consider a couple alternatives to implementing a new storage engine for
 Cache.  Mainly, we thought about using the existing **HTTP cache** or building
 on top of **IndexedDB**.  For various reasons, however, we chose to build on
@@ -72,11 +72,11 @@ Also, while not a technical issue, IndexedDB was also undergoing a significant
 rewrite at the time which we felt would have delays Cache implementation.
 
 10,000 Foot View
-----------------
+================
 With those primitives in mind, the overall structure of the Cache implementation
 looks like this:
 
-{% img /images/cache_high_level_design.png %}
+{% img /images/cache-high-level-design.png %}
 
 Here we see from left-to-right:
 
@@ -132,27 +132,50 @@ Here we see from left-to-right:
     Finally, the Action objects access the file system through the SQLite
     database, file streams, or the nsIFile interface.
 
+Closer Look
+===========
+Lets take a closer look at some of the more interesting parts of the system.
+Most of the action takes place in the Manager and Context, so lets start
+there.
+
 Manager
 -------
-Lets take a closer look at the Manager and Context objects since thats where
-most of the action happens.  First, the Manager.
-
 As I mentioned above, the Cache spec indicates each origin should have its own
 isolated `caches` object.  This maps to a single Manager instance for all
 CacheStorage and Cache objects for scripts running in the same origin:
 
-{% img /images/cache_singleton_manager.png %}
+{% img /images/cache-singleton-manager.png %}
 
 Its important that all operations for a single origin are routed through the
 same Manager because operations in different script contexts can interact with
 one another.
 
-For example, lets say the script in child process 1 calls `caches.open('foo')`,
-starts using the Cache, and then the script in child process 2 calls
-`caches.delete('foo')`.  This removes the Cache from `caches`, but process 1
-should still be able to call `fooCache.match()` to query it until its done with
-its work.  The Manager object supports this by tracking all outstanding remote
-Cache actors.
+For example, lets consider the following Cache calls from scripts running in
+two separate child processes.
+
+1. Process 1 calls `caches.open('foo')`.
+2. Process 1's promise from step 1 resolves with a Cache object.
+3. Process 2 calls `caches.delete('foo')`.
+
+At this point process 1 has a Cache object that has been removed from the
+`caches` CacheStorage index.  Any additional calls to `caches.open('foo')`
+will create a new Cache object.
+
+But how should the Cache returned to Process 1 behave?  Its a bit poorly
+defined in the spec, but the current interpretation is that it should behave
+normally.  The sript in process 1 should continue to be able to access
+data in the Cache using `match()`.  In addition, it should be able to store
+values using `put()`, although this is somewhat pointless if the Cache is
+not in `caches` anymore.  In the future, a `caches.put()` call may be added
+to let a Cache object to be re-inserted into the CacheStorage.
+
+In any case, the key here is that the `caches.delete()` call in process 2
+must understand that a Cache object is in use.  It cannot simply delete all
+the data for the Cache.  Instead we must reference count all uses of the
+Cache and only remove the data when they are all released.
+
+The Manager is the central place where all of this reference tracking is
+implemented and these races are resolved.
 
 A similar issue can happen with `cache.match(req)` and `cache.delete(req)`.  If
 the matched Response is still referenced, then the body data file needs to
@@ -163,6 +186,64 @@ an additional actor called a StreamControl which will be shown in the
 
 Context
 -------
+There are a number of stateful rules that must be followed in order to use the
+QuotaManager.  The Context is designed to implement these rules in a way that
+hides the complexity from the rest of the Cache as much as possible.
+
+Roughly the rules are:
+
+1. First, we must extract various information from the `nsIPrincipal` by calling
+   `QuotaManager::GetInfoFromPrincipal()` on the main thread.  This call
+   includes querying some permissions for the principal.  Since the permissions
+   can change over time the value returned from this call should not be cached.
+2. Next, the Cache must call `QuotaManager::WaitForOpenAllowed()` on the main
+   thread.  A callback is provided to this call so that we can be notified when
+   the open is permitted.  This callback occurrs on the main thread.
+3. Once we receive the callback we must next call
+   `QuotaManager::EnsureOriginIsInitialized()` on the QuotaManager IO thread.
+   This returns a pointer to the origin-specific directory in which we should
+   store all our files.
+4. The Cache code is now free to interact with the file system in the directory
+   retrieved in the last step.  These file IO operations can take place on any
+   thread.  There are some small caveats about using QuotaManager specific APIs
+   for SQLite and file streams, but for the most part these simply require
+   providing information from the `GetInfoFromPrincipal()` call.
+5. Once all file operations are complete we must call
+   `QuotaManager::AllowNextSynchronizedOp()` on the main thread.  All file streams
+   and SQLite database connections must be closed before making this call.
+
+In theory we could perform the `EnsureOriginIsInitialized()` call in step 3 only
+once if we also implemented the `nsIOfflineStorage` interface.  This interface
+would allow the QuotaManager to tell us to shutdown any IO work since the origin
+directory is being deleted.
+
+Currently the Cache does not do this, however, because the `nsIOfflineStorage`
+interface is expected to change significantly in the near future.  Instead, Cache
+simply calls the `EnsureOriginIsInitialized()` method each time to re-create the
+directory if necessary.  Once the API stabilizes the Cache will be updated to
+receive all such notifications from QuotaManager.
+
+An additional consequnce of not getting the `nsIOfflineStorage` callbacks is
+that the Cache must proactively call `QuotaManager::AllowNextSynchronizedOp()`
+so that the next QuotaManager client for the origin can do work.  The Context
+does this by issueing the `AllowNextSynchronizedOp()` in its destructor.  All
+in-flight Action objects hold a reference to the Context keeping it alive.
+Once the Actions complete the Context reference count drops to zero and is
+destructed.  In effect, the Context is a reference counted RAII object for
+working with the QuotaManager.
+
+The Manager currently creates the Context lazily on the first Action.  As long
+as Actions are still in-flight, then additional Actions are opportunistically
+dispatched on the same Context.  If there is a lull in activity, then the
+Context is released and QuotaManager::AllowNextSynchronizedOp()` is called.
+Again, once the `nsIOfflineStorage` equivalent callbacks are implemented then
+the Context can be left open for longer periods.
+
+Streams and IPC
+---------------
+
+Database Schema
+---------------
 
 Yak Trace
 ---------
@@ -170,21 +251,21 @@ Now that we have the lay of the land, lets trace what happens in Cache when
 you do something like this:
 
 ```
-// photo by aldisley - https://www.flickr.com/photos/disley/
-var ship = 'https://farm4.staticflickr.com/3476/3766603589_7f922af174_o_d.jpg';
+// photo by leg0fenris: https://www.flickr.com/photos/legofenris/
+var troopers = 'blob:https://mdn.github.io/6d4a4e7e-0b37-c342-81b6-c031a4b9082c'
 
 var legoBox;
 Promise.all([
-  fetch(ship),
+  fetch(troopers),
   caches.open('legos')
 ]).then(function(results) {
   var response = results[0];
   legoBox = results[1];
-  return legoBox.put(ship, response);
+  return legoBox.put(troopers, response);
 }).then(function() {
-  return legoBox.match(ship);
+  return legoBox.match(troopers);
 }).then(function(response) {
-  // fly around
+  // invade rebel base
 });
 ```
 
@@ -192,7 +273,7 @@ While it might seem the first Cache operation is `caches.open()`, its actually
 just accessing `caches`.  When the `caches` attribute is first accessed on the
 global we create the CacheStorage DOM object and IPC actors.
 
-{% img /images/cache_create_actor.png %}
+{% img /images/cache-create-actor.png %}
 
 I've numbered each step in order to show the sequence of events.  These steps
 are roughly:
@@ -218,7 +299,7 @@ are roughly:
 Now that we have the `caches` object we can get on with the `open()`.  This
 sequence of steps is more complex:
 
-{% img /images/cache_open_sequence.png %}
+{% img /images/cache-open-sequence.png %}
 
 There are a lot more steps here.  To avoid making this blog post any more
 boring than necessary, I'll focus on just the interesting ones.
@@ -249,7 +330,7 @@ returned to the JS script in first step.  All of this occurs in **steps 12 to
 On the off chance you're still reading this section, the script next performs
 a `put()` on the cache:
 
-{% img /images/cache_put_sequence.png %}
+{% img /images/cache-put-sequence.png %}
 
 This trace looks similar to the last with the main difference occuring in the
 Action on the right.  While this is true, its important to note that the
@@ -271,7 +352,7 @@ as `put()` resolves undefined in the success case.
 
 Finally the script can use `match()` to read the data back out of the Cache:
 
-{% img /images/cache_match_sequence.png %}
+{% img /images/cache-match-sequence.png %}
 
 In this trace the Action must first query the SQLite tables to determine if
 the Request exists in the Cache.  If it does, then it opens a stream to the
