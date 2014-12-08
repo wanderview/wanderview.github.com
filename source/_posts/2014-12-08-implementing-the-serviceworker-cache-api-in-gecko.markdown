@@ -115,7 +115,7 @@ Here we see from left-to-right:
 
 * **Manager**
 
-    This where things start to get a bit more interesting.  The Cache spec
+    This is where things start to get a bit more interesting.  The Cache spec
     requires each origin to get its own, unique CacheStorage instance.  This
     is accomplished by creating a separate per-origin Manager object.  These
     Manager objects can come and go as DOM objects are used and then garbage
