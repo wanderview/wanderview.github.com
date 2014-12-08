@@ -15,6 +15,15 @@ high-level description of how things are put together.
 
 <!--more-->
 
+If you are unfamiliar with ServiceWorkers and its Cache API, I highly recommend
+reading the following excellent sources:
+
+* [Service Worker - first draft published][] by [Jake Archibald][]
+* [Introduction to Service Worker][] by [Matt Gaunt][]
+* [Using Service Workers][] on MDN
+* [Service Worker Spec][]
+* [Fetch Spec][]
+
 Building Blocks
 ===============
 The Cache API is implemented in C++ based on the following Gecko primitives:
@@ -193,9 +202,7 @@ hides the complexity from the rest of the Cache as much as possible.
 Roughly the rules are:
 
 1. First, we must extract various information from the `nsIPrincipal` by calling
-   `QuotaManager::GetInfoFromPrincipal()` on the main thread.  This call
-   includes querying some permissions for the principal.  Since the permissions
-   can change over time the value returned from this call should not be cached.
+   `QuotaManager::GetInfoFromPrincipal()` on the main thread.
 2. Next, the Cache must call `QuotaManager::WaitForOpenAllowed()` on the main
    thread.  A callback is provided to this call so that we can be notified when
    the open is permitted.  This callback occurrs on the main thread.
@@ -212,7 +219,17 @@ Roughly the rules are:
    `QuotaManager::AllowNextSynchronizedOp()` on the main thread.  All file streams
    and SQLite database connections must be closed before making this call.
 
-In theory we could perform the `EnsureOriginIsInitialized()` call in step 3 only
+The Context object functions as a reference counted RAII-style object.  It
+automatically executes steps 1 to 3 when constructed.  When the Contextobject's
+reference count drops to zero, its destructor runs and it schedules the
+`AllowNextSynchronzedOp()` to run on the main thread.
+
+Note, while it appears the `GetInfoFromPrincipal()` call in step 1 could be
+performed once and cached, we actually can't do that.  Part of extracting
+the information is querying the current permissions for the principal.  Its
+possible these can change over time.
+
+In theory, we could perform the `EnsureOriginIsInitialized()` call in step 3 only
 once if we also implemented the `nsIOfflineStorage` interface.  This interface
 would allow the QuotaManager to tell us to shutdown any IO work since the origin
 directory is being deleted.
@@ -225,29 +242,104 @@ receive all such notifications from QuotaManager.
 
 An additional consequnce of not getting the `nsIOfflineStorage` callbacks is
 that the Cache must proactively call `QuotaManager::AllowNextSynchronizedOp()`
-so that the next QuotaManager client for the origin can do work.  The Context
-does this by issueing the `AllowNextSynchronizedOp()` in its destructor.  All
-in-flight Action objects hold a reference to the Context keeping it alive.
-Once the Actions complete the Context reference count drops to zero and is
-destructed.  In effect, the Context is a reference counted RAII object for
-working with the QuotaManager.
+so that the next QuotaManager client for the origin can do work.
 
-The Manager currently creates the Context lazily on the first Action.  As long
-as Actions are still in-flight, then additional Actions are opportunistically
-dispatched on the same Context.  If there is a lull in activity, then the
-Context is released and QuotaManager::AllowNextSynchronizedOp()` is called.
-Again, once the `nsIOfflineStorage` equivalent callbacks are implemented then
-the Context can be left open for longer periods.
+Given the RAII-style life cycle, this is easily achieved by simply having the
+Action objects hold a reference to the Context until they complete.  The
+Manager has a raw pointer to Context that is cleared when it destructs.  If
+there is no more work to be done, the Context is released and step 5 is
+performed.
+
+Once the new `nsIOfflineStorage` API callbacks are implemented the Cache will
+be able to keep the Context open longer.  Again, this is easy and simply needs
+the Manager to hold a strong reference to the Context.
 
 Streams and IPC
 ---------------
+Since mobile platforms are a key target for ServiceWorkers, the Cache API needs
+to be memory efficient.  RAM is often the most constraining resource on these
+devices.  To that end, our implementation should use streaming whenever possible
+to avoid holding large buffers in memory.
 
-Database Schema
----------------
+In gecko this is essentially implemented by a collection of classes that
+implement the `nsIInputStream` interface.  These streams are pretty
+straightforward to use in normal code, but what happens when we need to serialize
+a stream across IPC?
 
-Yak Trace
----------
-Now that we have the lay of the land, lets trace what happens in Cache when
+The answer depends on the type of stream being serialized.  We have a couple
+existing solutions:
+
+* Streams created for a flat memory buffer are simply copied across.
+* Streams backed by a file have their file descriptor `dup()`'d and passed
+  across.  This allows the other process to read the file directly without any
+  immediate memory impact.
+
+Unfortunately, we do not have a way to serialize an `nsIPipe` across IPC without
+completely buffering it first.  This is important for Cache, because this is the
+type of stream we receive from a `fetch()` Response object.
+
+To solve this Kyle Huey is implementing a new [CrossProcessPipe][] that will send
+the data across the IPC boundary in chunks.
+
+You may be asking, "why do you need to send the `fetch()` data from the child to
+the parent process when doing a `cache.put()`?  Surely the parent process
+already saw this data somewhere."
+
+Unfortunately, in this particular case we will be sending all the fetched
+Response from the parent-to-child when the `fetch()` is performed.  If the
+response is passed to `Cache.put()`, then the data is copied back to the parent.
+
+Unfortunately, this is necessary to avoid buffering potentially large Response
+bodies in the parent.  Its imperitive that the parent process never run out of
+memory.  One day we may be able to open the file descriptor in the parent,
+`dup()` it to the child, and then write the data directly from the child process,
+but currently this is not possible with the current Quota Manager.
+
+Disk Schema
+-----------
+Finally, that brings us to a discussion of how the data is actually stored on
+disk.  It basically breaks down like this:
+
+* Body data for both Requests and Responses are stored directly in individual
+  [snappy][] compressed files.
+* All other Request and Response data are stored in SQLite.
+
+I know some people [discourage using SQLite][], but I chose it for a few
+reasons:
+
+1. SQLite provides transactional behavior.
+2. SQLite is a well tested system with known caveats and performance
+   characteristics.
+3. SQL provides a flexible query engine to implement and fine tune the Cache
+   matching algorithm.
+
+In this case I don't think serializing all of the Cache metadata into a flat
+file would be a good solution here.  In generaly, only a small subset of the
+data will be read or write on each operation.  In addition, we don't want
+to require reading the entire dataset into memory.  Also, for expected Cache
+usage, the data should typically be read-mostly with fewer writes over time.
+Data will not be continuously appended to the database. For these reasons I've
+chosen to go with SQLite while understanding the risks and pitfalls.
+
+I plan to mitigate fragmentation by performing regular maintainance.  Whenever
+a row is deleted from or inserted into a table a counter will be updated in a
+flat file.  When the Context opens it will examine this counter and perform a
+VACUUM if its larger than a configured constant.  The constant will of course
+have to be fine tuned based on real world measurements.
+
+Simple marker files will also be used to note when a Context is open.  If the
+browser is killed with a Context open, then a scrubbing process will be
+triggered the next time that origin accesses `caches`.  This will look for
+orphaned Cache and body data files.
+
+Finally, the bulk of the SQLite specific code is isolated in two classes;
+`DBAction.cpp` and `DBSchema.cpp`.  If we find SQLite is not performant
+enough, it should be straightforward to replace these files with another
+solution.
+
+Detailed Trace
+==============
+Now that we have the lay of the land, lets trace what happens in the Cache when
 you do something like this:
 
 ```
@@ -269,9 +361,10 @@ Promise.all([
 });
 ```
 
-While it might seem the first Cache operation is `caches.open()`, its actually
-just accessing `caches`.  When the `caches` attribute is first accessed on the
-global we create the CacheStorage DOM object and IPC actors.
+While it might seem the first Cache operation is `caches.open()`, we actually
+need to trace what happens when `caches` is touched.  When the `caches`
+attribute is first accessed on the global we create the CacheStorage DOM object
+and IPC actors.
 
 {% img /images/cache-create-actor.png %}
 
@@ -289,12 +382,12 @@ are roughly:
    describing the content script's origin and other identifying information.
 4. Before permitting any actual work to take place the principal provided to
    the actor must be verified.  For various reasons this can only be done on
-   the main thread.  So an asynchronous operation is triggered to do examine
-   the principal and any operations coming in are queued.
+   the main thread.  So an asynchronous operation is triggered to examine
+   the principal and any CacheStorage operations coming in are queued.
 5. Once the principal is verified we return to the worker thread.
 6. Assuming verification succeeded, then the origin's Manager can now be
    accessed or created.  (This is actually deferred until the first operation,
-   though.)
+   though.)  Any pending CacheStorage operations are immediately executed.
 
 Now that we have the `caches` object we can get on with the `open()`.  This
 sequence of steps is more complex:
@@ -318,11 +411,10 @@ a unique CacheId.
 
 **Steps 8 to 11** essentially just return the CacheId back to the actor layer.
 
-You may have noticed we skipped step 10 fiddling with the Context. I'll get to
-that below in the Manager/Context deep dive.
+If this was the last action, then the Context is released in **step 10**.
 
 At this point we need to create a new actor for the CacheId.  This Cache actor
-can then be passed back to the child process where it gets a child actor.
+will be passed back to the child process where it gets a child actor.
 Finally a Cache DOM object is constructed and used to resolve the Promise
 returned to the JS script in first step.  All of this occurs in **steps 12 to
 17**.
@@ -332,13 +424,10 @@ a `put()` on the cache:
 
 {% img /images/cache-put-sequence.png %}
 
-This trace looks similar to the last with the main difference occuring in the
+This trace looks similar to the last one, with the main difference occuring in the
 Action on the right.  While this is true, its important to note that the
 IPC serialization in this case includes a data stream for the Response body.
-This stream serialization occurs in different ways depending on the source,
-but the main thing to understand is that the body data may not all be available
-when the `put()` occurrs.  We may just have the first few bytes and will have
-to wait for further data to come in.
+So we might be creating a CrossProcessPipe actor to copy data across in chunks.
 
 With that in mind the Action needs to do the following:
 
@@ -347,8 +436,8 @@ With that in mind the Action needs to do the following:
 * Update the SQLite database to reflect the new Request/Response pair with
   a file name pointer to the body.
 
-All of the result steps are essentially just there to indicate completion
-as `put()` resolves undefined in the success case.
+All of the steps back to the child process are essentially just there to indicate
+completion.  The `put()` operation resolves undefined in the success case.
 
 Finally the script can use `match()` to read the data back out of the Cache:
 
@@ -378,152 +467,56 @@ dup()'ing the file descriptor opened by the Action.
 Ultimately the body file data is read from the stream when the content script
 calls `Response.text()` or one of the other body consumption methods.
 
-[fetch]: https://fetch.spec.whatwg.org/
+TODO
+====
+Of course, there is still a lot to do.  While we are going to try to land the
+current implementation on mozilla-central, a number of issues must be
+resolved before it can be enabled by default.
+
+1. SQLite maintainance must be implemented.  As I mentioned above, I have a
+   plan for how this will work, but it has not been written yet.
+2. Stress testing must be performed to fine tune the SQLite schema and
+   configuration.
+3. Files should be de-duplicated within a single origin's CacheStorage.  This
+   will be important for efficiently supporting some expected uses of the
+   Cache API.  (De-duplication beyond the same origin will require expanded
+   support from the QuotaManager and is unlikely to occur in the near future.)
+4. Request and Response `clone()` must be improved.  Currently a `clone()`
+   call results in the body data being copied.  In general we should be able
+   to avoid almost all copying here, but it will require some work.  See
+   [bug 1100398][] for more details.
+5. Telemetry should be added so that we can understand how the Cache is
+   being used.  This will be important for improving the performance of the
+   Cache over time.
+
+Conclusion
+==========
+While the Cache implementation is sure to change, this is where we are today.
+We want to get Cache and the other ServiceWorker bits off of our project branch
+and into mozilla-central as soon as possible so other people can start testing
+with them.  Reviewing the Cache implementation is an important step in that
+process.
+
+If you would like to follow along please see [bug 940273][].  As always, feedback
+is welcome by email or on [twitter][].
+
+[Service Worker - first draft published]: http://jakearchibald.com/2014/service-worker-first-draft/
+[Jake Archibald]: https://twitter.com/jaffathecake
+[Introduction to Service Worker]: http://www.html5rocks.com/en/tutorials/service-worker/introduction/
+[Matt Gaunt]: https://twitter.com/gauntface
+[Using Service Workers]: https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorker_API/Using_Service_Workers
+[Service Worker Spec]: https://slightlyoff.github.io/ServiceWorker/spec/service_worker/index.html
+[Fetch Spec]: https://fetch.spec.whatwg.org/
 [response]: https://fetch.spec.whatwg.org/#response-class
 [cache]: https://slightlyoff.github.io/ServiceWorker/spec/service_worker/index.html#cache-objects
-[primer]: http://jakearchibald.com/2014/service-worker-first-draft/
-[WebIDL bindings]:
-[PBackground]:
-[electrolysis]:
-[Quota Manager]:
-[mozStorage]:
-
-DRAFT STUFF
-===========
-
-What are you implementing?
-==========================
-The ServiceWorker Cache API allows content script to store and retrieve
-[Fetch][fetch] [Response][response] objects.  Each page gets a CacheStorage
-object unique to their origin.  You then have multiple Cache objects that can
-be accessed in each CacheStorage.  This lets you manage your cached resources in
-cohesive collections.
-
-To fully understand the API you should read the [spec][cache] and Jake
-Archibald's excellent [ServiceWorker primer][primer].  That being said, here is a
-short example script using Cache:
-
-```javascript
-var url = 'http://example.com/hello.jpg';
-var cache;
-
-// Open the Cache and fetch a file in parallel
-Promise.all([
-  caches.open('v1'),
-  fetch(url)
-]).then(function (results) {
-
-  // Put the fetched Response in the Cache
-  cache = results[0];
-  var response = results[1];
-  return cache.put(url, response);
-
-}).then(function() {
-
-  // Pull the Response back out of the Cache for processing
-  return cache.match(url);
-
-}).then(function (response) {
-
-  console.log(response.text());
-});
-```
-
-Sounds easy. What's the catch?
-==============================
-In addition to what the Cache spec says, there were some additional goals and
-constraints to consider.
-
-1. **Work well on mobile devices.**
-
-    One of the main goals for ServiceWorkers is to support offline web apps.
-    This is obviously very important for browsers running on mobile devices,
-    such as FirefoxOS and Firefox for Android.  These devices tend to have much
-    less memory than traditional desktop machines.  The design should take
-    these limitations into account and favor memory efficiency where possible.
-
-2. **Support both single-process and multi-process configurations.**
-
-    Gecko currently provides both the traditional single-process setup and the
-    multi-process configuration called electrolysis (e10s).  Both Firefox
-    release and Firefox for Android currently run in single process. FirefoxOS
-    and Firefox Nightly run in e10s.  The Cache must work in all of these
-    products.
-
-3. **Integrate with the quota and permissions systems.**
-
-    The Cache API allows content scripts to store significant amounts of data
-    on the user's disk.  To avoid abuse, the implementation must respect limits
-    set by the user. This means integrating with the browser's quota management
-    and permissions systems.
-
-4. **Support scripts outside of ServiceWorkers.**
-
-    While currently the spec only provides the Cache API on ServiceWorkers, the
-    intention is to eventually make it available more broadly.  This means the
-    implementation should support usage on the main thread and other types of
-    web workers.
-
-Can't you just reuse some existing code?
-========================================
-When we first started implementing ServiceWorkers we considered a few
-different options for Cache:
-
-1. **Use the HTTP cache.**
-
-    One obvious approach would have been to reuse the existing HTTP cache for
-    the new Cache API.  At first glance these two have a lot of similarity in
-    what they do and the HTTP cache might simply need resource pinning to avoid
-    automaticly aging out files.  Unfortunately, there are many more
-    complications with this approach than just aging.
-
-    First, the HTTP cache does not use the quota management system and adding
-    support for it would be non-trivial.
-
-    In addition, the HTTP cache does not implement caching the same way as the
-    Cache API spec.  For example, with the Cache API you can end up with many
-    different files stored for the same URL due to vary headers, there being
-    multiple Cache objects per CacheStorage, and a different CacheStorage for
-    each origin.  In contrast, the HTTP cache only ever stores a single file for
-    any given resource URL.  This makes sense given typical browser usage, but
-    does not fit the Cache API.  While we could add try to change HTTP cache to
-    support all these differences, it seems prudent to allow it to follow its
-    own implementation path without constraint from this other spec.
-
-2. **Use IndexedDB.**
-
-    Another approach would have been to build the Cache API on top of the
-    existing IndexedDB (IDB) implementation.  The advantages here are that IDB
-    is already battle tested on mobile devices in FirefoxOS.  It also is
-    fully integrated into the quota managment system.
-
-    Unfortunately, though, there were some disadvantages with this approach
-    as well.  IDB is based on structured cloning data to be stored.  The Fetch
-    Response objects, however, are designed to be streamed from the network to
-    allow large values to be handled efficiently.  When we began implementation
-    there was no way to structure clone a streamed value.  The ability to support
-    streaming efficiently was considered important for memory efficiency.
-
-    Also, it seems that the Cache API matching algorithms can be implemented
-    more efficiently using an SQL oriented storage engine compared to the API
-    provided by IDB.  While the IDB API is flexible, I've found it often
-    requires reading more data into memory compared to using a more complex
-    query engine.
-
-    Finally, when the Cache API work was beginning, IDB was in the middle of
-    being re-written to support web workers.  This re-write is just now
-    finishing and would have delayed the Cache implementation quite a bit.
-
-3. **Build from scratch.**
-
-    Ultimately we decided to build a new storage engine due to the issues
-    with using the HTTP cache and IndexedDB.  With this approach we could
-    use the same underlying primitives that IndexedDB uses, such as SQLite,
-    but make different design choices to better fit the Cache API.  Data
-    could be streamed instead of structure cloned.  The database schema
-    could be designed to fit the Cache API algorithms.
-
-    Of course, this approach also has its disadvantages; the main one being
-    increased code complexity.  The hope, however, is that we can eventually
-    identify common problems and solutions with the IndexedDB implementation
-    and factor these out into new, better primitives for future use.
+[WebIDL bindings]: https://developer.mozilla.org/en-US/docs/Mozilla/WebIDL_bindings
+[PBackground]: https://bugzilla.mozilla.org/show_bug.cgi?id=956218
+[electrolysis]: https://wiki.mozilla.org/Electrolysis
+[Quota Manager]: http://dxr.mozilla.org/mozilla-central/source/dom/quota/QuotaManager.h
+[mozStorage]: https://developer.mozilla.org/en-US/docs/Storage
+[snappy]: https://code.google.com/p/snappy/
+[discourage using SQLite]: https://wiki.mozilla.org/Performance/Avoid_SQLite_In_Your_Next_Firefox_Feature
+[bug 1100398]: https://bugzilla.mozilla.org/show_bug.cgi?id=1100398
+[bug 940273]: https://bugzilla.mozilla.org/show_bug.cgi?id=940273
+[twitter]: https://twitter.com/wanderview
+[CrossProcessPipe]: https://bugzilla.mozilla.org/show_bug.cgi?id=1093357
