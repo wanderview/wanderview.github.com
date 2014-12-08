@@ -507,7 +507,7 @@ process.
 If you would like to follow along please see [bug 940273][].  As always, feedback
 is welcome by email or on [twitter][].
 
-[project branch]: https://hg.mozilla.org/projects/maple/file/
+[project branch]: https://hg.mozilla.org/projects/maple/file/tip/dom/cache
 [Service Worker - first draft published]: http://jakearchibald.com/2014/service-worker-first-draft/
 [Jake Archibald]: https://twitter.com/jaffathecake
 [Introduction to Service Worker]: http://www.html5rocks.com/en/tutorials/service-worker/introduction/
