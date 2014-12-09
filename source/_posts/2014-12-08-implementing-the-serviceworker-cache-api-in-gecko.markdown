@@ -18,7 +18,7 @@ high-level description of how things are put together.
 If you are unfamiliar with Service Workers and its Cache API, I highly recommend
 reading the following excellent sources:
 
-* [Service Worker - first draft published][] by [Jake Archibald][]
+* [The Offline Cookbook][] by [Jake Archibald][]
 * [Introduction to Service Worker][] by [Matt Gaunt][]
 * [Using Service Workers][] on MDN
 * [Service Worker Spec][]
@@ -508,7 +508,7 @@ If you would like to follow along please see [bug 940273][].  As always, feedbac
 is welcome by email or on [twitter][].
 
 [project branch]: https://hg.mozilla.org/projects/maple/file/tip/dom/cache
-[Service Worker - first draft published]: http://jakearchibald.com/2014/service-worker-first-draft/
+[The Offline Cookbook]: http://jakearchibald.com/2014/offline-cookbook/
 [Jake Archibald]: https://twitter.com/jaffathecake
 [Introduction to Service Worker]: http://www.html5rocks.com/en/tutorials/service-worker/introduction/
 [Matt Gaunt]: https://twitter.com/gauntface
