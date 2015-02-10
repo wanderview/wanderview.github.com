@@ -4,10 +4,10 @@
 
 url: http://blog.wanderview.com
 title: wanderview
-subtitle: "a boring blog by ben kelly"
+subtitle: "~ a boring technical blog ~"
 author: Ben Kelly
 simple_search: https://google.com/search
-description: "I'm ridiculously fortunate to be paid to work on open source software at Mozilla.<br/>See my <a target='_blank' href='https://mozillians.org/en-US/u/bkelly/'>Mozillians profile</a> for more contact information."
+description: "My name is Ben Kelly.  I'm a software engineer working on the DOM team at Mozilla. <br/>See my <a target='_blank' href='https://mozillians.org/en-US/u/bkelly/'>Mozillians profile</a> for more contact information."
 
 # Default date format is "ordinal" (resulting in "July 22nd 2007")
 # You can customize the format as defined in
@@ -41,7 +41,7 @@ rdiscount:
     - smart
 highlighter: pygments # default python pygments have been replaced by pygments.rb
 
-paginate: 1          # Posts per page on the blog index
+paginate: 2          # Posts per page on the blog index
 paginate_path: "posts/:num"  # Directory base for pagination URLs eg. /posts/2/
 recent_posts: 5       # Posts in the sidebar Recent Posts section
 excerpt_link: "Read on &rarr;"  # "Continue reading" link text at the bottom of excerpted articles
