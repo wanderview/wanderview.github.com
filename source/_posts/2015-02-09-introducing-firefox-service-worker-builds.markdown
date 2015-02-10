@@ -4,6 +4,7 @@ title: "Introducing Firefox Service Worker Builds"
 date: 2015-02-10 14:00:00 -0500
 comments: true
 description: "A blog post introducing a set of Firefox builds that include the Service Worker, Fetch, and Cache APIs."
+alias: /blog/2015/02/09/introducing-firefox-service-worker-builds/
 categories: [mozilla,serviceworker,dom,cache,fetch]
 ---
 
