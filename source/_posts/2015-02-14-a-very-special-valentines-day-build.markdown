@@ -18,6 +18,8 @@ These builds have been updated today, February 14:
 
   [Firefox Service Worker Builds][]
 
+<!-- more -->
+
 This week's build provides a number of improvements:
 
 * [Andrea Marchesini][] landed [bug 984050][] in Nightly implementing
