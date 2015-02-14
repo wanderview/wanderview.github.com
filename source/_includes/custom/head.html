@@ -10,4 +10,7 @@
 <meta property="twitter:url" content="{% if canonical %}{{ canonical }}{% else %}{{ site.url }}{% endif %}">
 <meta property="twitter:title" content="{% if page.title %}{{ page.title }}{% else %}{{ site.title }}{% endif %}">
 <meta property="twitter:description" content="{{ description | strip_html | condense_spaces | truncate:200 }}">
+{% if page.image %}
+<meta property="twitter:image" content="{{ site.url }}{{ page.image }}">
+{% endif %}
 {% endif %}
