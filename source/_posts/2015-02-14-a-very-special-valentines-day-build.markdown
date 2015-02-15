@@ -45,7 +45,7 @@ tree for Nightly:
 As always, please let us know if you have any questions or run into any
 problems.  Thank you for your assistance in testing this new feature!
 
-[introduced some custom Firefox builds]: http://localhost:4000/blog/2015/02/10/introducing-firefox-service-worker-builds/
+[introduced some custom Firefox builds]: /blog/2015/02/10/introducing-firefox-service-worker-builds/
 [Firefox Service Worker Builds]: /sw-builds
 [Andrea Marchesini]: https://twitter.com/baku82845977
 [Nikhil Marathe]: https://twitter.com/nikhilcutshort
