@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Initial Cache API Lands in Nightly"
-date: 2015-03-09 11:05:00 -0400
+date: 2015-03-09 11:30:00 -0400
 comments: false
 description: "Its been two busy weeks since the last Service Worker build and a lot has happened.  The first version of the Cache API has landed in Nightly along with many other improvements and fixes."
 categories: [mozilla,serviceworker,dom,cache,fetch]
@@ -13,10 +13,9 @@ with many other improvements and fixes.
 
 <!-- more -->
 
-The Cache is particularly important because it was perhaps the largest set
-of patches blocking users from testing directly in Nightly.  Finally getting
-it into the tree brings us much closer to the point where we don't need
-these custom builds any more.
+The Cache landing is nice because it was the largest set of patches blocking
+users from testing directly in Nightly.  Finally getting it into the tree brings
+us much closer to the point where we don't need these custom builds any more.
 
 We're not there yet, though.  The custom builds will still be needed until
 the following two issues are fixed:
