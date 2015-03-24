@@ -4,7 +4,7 @@ title: "Service Workers in Firefox Nightly"
 date: 2015-03-24 11:15:00 -0400
 comments: false
 description: "Service Worker testing is moving to Firefox Nightly."
-image: /images/nightly-logo-small.png
+image: /images/nightly-logo-tiny.png
 categories: [mozilla,serviceworker,dom,cache,fetch]
 ---
 
