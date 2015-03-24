@@ -54,5 +54,5 @@ Worker registrations and data stored in Cache.
 As always we appreciate your help testing, reporting bugs, and implementing code.
 
 [bug 1110814]: https://bugzilla.mozilla.org/show_bug.cgi?id=1110814
-[bug 1125961]: https://bugzilla.mozilla.org/show_bug.cgi?id=1125961
+[bug 1125961]: https://bugzilla.mozilla.org/show_bug.cgi?id=1125961#c35
 [bug 931249]: https://bugzilla.mozilla.org/show_bug.cgi?id=931249
