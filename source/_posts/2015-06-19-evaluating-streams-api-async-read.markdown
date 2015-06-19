@@ -3,7 +3,7 @@ layout: post
 title: "Evaluating the Streams API's Asynchronous Read Function"
 date: 2015-06-19 13:50:00 -0500
 comments: false
-categories: 
+categories: mozilla,streams
 ---
 
 For a while now Google's [Domenic Denicola][], [Takeshi Yoshino][], and others have been
