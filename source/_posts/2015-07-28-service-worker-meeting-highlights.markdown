@@ -181,7 +181,7 @@ next one will be held at [TPAC][] at the end of October.
 [not to ship in Firefox 41]: /blog/2015/06/18/service-workers-will-not-ship-in-firefox-41/
 [navigator.connect()]: https://github.com/mkruisselbrink/navigator-connect
 [fall-through fetch]: https://github.com/slightlyoff/ServiceWorker/issues/684
-[foreign-fetch]: https://wiki.whatwg.org/wiki/Foreign_Fetch
+[foreign fetch]: https://wiki.whatwg.org/wiki/Foreign_Fetch
 [opt-out of fetch events]: https://github.com/slightlyoff/ServiceWorker/issues/718#issuecomment-123530545
 [Service-Worker-Max-Age header]: https://github.com/slightlyoff/ServiceWorker/issues/721
 [coordinated updates]: https://github.com/slightlyoff/ServiceWorker/issues/727
