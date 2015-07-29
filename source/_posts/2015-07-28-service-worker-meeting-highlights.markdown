@@ -3,14 +3,14 @@ layout: post
 title: "Service Worker Meeting Highlights"
 date: 2015-07-28 13:30:00 -0700
 comments: false
-description: "Last week folks from Apple, Google, Microsoft, and Mozilla met in San Francisco to talk about service workers.  The focus was on addressing problems with the current spec and to discuss what new features should be added next."
+description: "Last week folks from Apple, Google, Microsoft, Mozilla, and Samsung met in San Francisco to talk about service workers.  The focus was on addressing problems with the current spec and to discuss what new features should be added next."
 image: /images/highlighter-square.jpg
-categories: [mozilla,google,apple,microsoft,serviceworker,dom,cache,fetch]
+categories: [mozilla,google,apple,microsoft,samsung,serviceworker,dom,cache,fetch]
 ---
 
 {% img pull-right /images/highlighter-small.jpg %}
 
-Last week folks from Apple, Google, Microsoft, and Mozilla met in San Francisco
+Last week folks from Apple, Google, Microsoft, Mozilla, and Samsung met in San Francisco
 to talk about service workers.  The focus was on addressing problems with the
 current spec and to discuss what new features should be added next.
 
