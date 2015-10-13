@@ -34,12 +34,15 @@ self.addEventListener('activate', function(evt) {
 });
 ```
 
-This is nice and simple, but it does have one downside.  It re-downloads the
-entire resource list from the network on each upgrade.
+This is nice and simple, but it does have one downside.  It requests the
+entire resource list from the browser's network stack on each upgrade.
 
-Clearly if a resource didn't change we could simply copy it from the old `v1`
-cache to the new `v2` cache.  But normally we only update when things change,
-so is there any improvement we can make for those resources?
+This can be mitigated pretty easily For unchanged files.  Simply set the correct
+cache control headers on the server so you hit the HTTP cache.  Or even copy the
+resource directly from the old `v1` cache to the new `v2` cache.
+
+That being said, we normally only update when things change.  Is there anything
+we can do to improve the situation for modified resources?
 
 Can we do better?
 -----------------
