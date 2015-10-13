@@ -5,7 +5,12 @@
 -->
 
 {% if site.twitter_user %}
+{% if page.large-image %}
+<meta property="twitter:card" content="summary_large_image">
+<meta property="twitter:image" content="{{ site.url }}{{ page.large-image }}">
+{% else %}
 <meta property="twitter:card" content="summary">
+{% endif %}
 <meta property="twitter:site" content="{{ site.twitter_user }}">
 <meta property="twitter:url" content="{% if canonical %}{{ canonical }}{% else %}{{ site.url }}{% endif %}">
 <meta property="twitter:title" content="{% if page.title %}{{ page.title }}{% else %}{{ site.title }}{% endif %}">
@@ -13,4 +18,5 @@
 {% if page.image %}
 <meta property="twitter:image" content="{{ site.url }}{{ page.image }}">
 {% endif %}
+
 {% endif %}
