@@ -110,7 +110,7 @@ complications of making it general purpose across all web sites.
 Diff'ing and Patching
 ---------------------
 
-When I first considers delta encoding, I searched for a good diff/patch
+When I first considered delta encoding, I searched for a good diff/patch
 algorithm implemented in javascript.  At the time I didn't find much that
 was suitable.  It seemed most libraries were either focused on creating
 traditional UNIX diff output or wrappers around native code.  I needed
