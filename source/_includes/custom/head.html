@@ -19,4 +19,14 @@
 <meta property="twitter:image" content="{{ site.url }}{{ page.image }}">
 {% endif %}
 
+<script>
+if (navigator.serviceWorker && !navigator.serviceWorker.controller) {
+  navigator.serviceWorker.register('/sw.js').then(function(swr) {
+    console.log('service worker registered');
+  }).catch(function(e) {
+    console.log('service worker failed to register: ' + e);
+  });
+}
+</script>
+
 {% endif %}
