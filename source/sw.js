@@ -20,16 +20,19 @@ var offlineAssets = [
   '/images/wifi-1-bar-xxl.png',
   '/stylesheets/screen.css',
   '/javascripts/modernizr-2.0.js',
-  '/javascripts/lib/jquery.min.js',
+  '/javascripts/libs/jquery.min.js',
   '/javascripts/octopress.js',
 ];
+
 
 addEventListener('install', function(evt) {
   skipWaiting();
   // Only pre-cache resources needed to show our offline failure page.  All
   // other resources are added via read-through-caching.
   evt.waitUntil(caches.open(version).then(function(cache) {
-    return cache.addAll(offlineAssets);
+    return cache.addAll(
+      offlineAssets.map(url => new Request(url, { cache: 'no-cache' }))
+    );
   }));
 });
 
