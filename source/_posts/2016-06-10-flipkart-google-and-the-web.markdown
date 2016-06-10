@@ -3,6 +3,7 @@ layout: post
 title: "Flipkart, Google, and the Web"
 date: 2016-06-10 11:04:20 -0700
 comments: false
+description: "A post describing my concerns with Flipkart, Google, and the Web."
 categories: web
 ---
 
