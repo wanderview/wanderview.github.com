@@ -3,9 +3,14 @@ layout: post
 title: "Flipkart, Google, and the Web"
 date: 2016-06-10 11:04:20 -0700
 comments: false
+exclude: true
 description: "A post describing my concerns with Flipkart, Google, and the Web."
 categories: web
 ---
+
+**UPDATE: Please note that Flipkart has since released their product fully on
+Firefox.  While I think their conversion to progressive web apps could have been
+handled better at the time, it has all worked out well in the end.**
 
 This week I [vented my frustration on Twitter][] about what I see as an issue
 with Flipkart, Google, and maintaining the open web.  I want to take this time
