@@ -11,6 +11,8 @@ against real, captured network data.  I was rather happy with
 how that module turned out, so I decided to mock out [dgram][] next in order
 to support testing UDP packets as well.
 
+<!-- more -->
+
 I almost immediately ran into a few issues:
 
 1. The `dgram` module does not implement a streams2 [duplex][] API.  It

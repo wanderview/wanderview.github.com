@@ -14,6 +14,8 @@ this issue I've turned to hacking on ancient protocols in [node.js][].
 So far I've tackled [NetBIOS][] and thought I would share some of the code
 I've come up with.
 
+<!-- more -->
+
 The first step to finding or advertising a NetBIOS name is to start up a
 [netbios-name-service][] instance.
 

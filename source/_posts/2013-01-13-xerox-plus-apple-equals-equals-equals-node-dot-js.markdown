@@ -8,6 +8,8 @@ categories:
 
 {% img right /images/xerox6128mfp.jpg 275 265 %}
 
+<!-- more -->
+
 In 2010 my wife and I decided to buy a fancy all-in-one, networked, laser
 printer and scanner.  We were tired of the long, onerous tasks of cleaning
 ink cartridges and walking over to the scanner to plug in our laptops.  A

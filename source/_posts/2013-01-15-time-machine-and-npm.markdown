@@ -16,6 +16,8 @@ will be looking at this dialogue box at some point.
 
 {% img center /images/time-machine-failure.png %}
 
+<!-- more -->
+
 I ran into this problem a couple weeks ago.  At first I thought my disk was
 going bad, but all the Disk Utility checks ran fine.  Eventually I ended up
 looking in the log and found this gem:

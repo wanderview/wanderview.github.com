@@ -20,6 +20,8 @@ to a [pcap][] file and then playing it back as the input to your test.
 In this post I will discuss how to do this in [node.js][] using the
 [pcap-socket][] module.
 
+<!-- more -->
+
 ## Module Overview
 
 There are currently a couple of options for accessing [pcap][] data in

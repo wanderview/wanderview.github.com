@@ -6,6 +6,8 @@ comments: false
 categories: 
 ---
 
+<!-- more -->
+
 My [last post][] described some basic NetBIOS operations using [node.js][].
 This was the first step towards my [larger project goal][] of integrating my
 scanner with [DropBox][].  At the end of the post, however, I realized I

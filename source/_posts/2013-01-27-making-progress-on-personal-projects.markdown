@@ -10,6 +10,8 @@ Sometimes I wonder how many people consider personal projects, but never
 even get started because they feel they don't have the time?  How many amazing
 and interesting ideas lie unrealized due to day-to-day commitments?
 
+<!-- more -->
+
 While my [project][] is neither amazing nor all that interesting, I too spent
 a period of time thinking I just didn't have the time to work on it.  My wife
 and I happily welcomed our daughter into this world just last September.  Ever
