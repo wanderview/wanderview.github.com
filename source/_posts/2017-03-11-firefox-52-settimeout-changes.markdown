@@ -141,7 +141,7 @@ Without yielding this demo site will run drop pretty much every modern
 browser to 0 frame-per-second, but will mostly run the animation in a
 reasonable time.
 
-<video src="/videos/open-loop-animation-45esr.mp4" controls width=480 class="center-block"></video>
+<video src="/videos/open-loop-animation-45.mp4" controls width=480 class="center-block"></video>
 
 In Firefox 52, however, we end up delaying some of the timers further due
 to our yielding.  This keeps the browser running at a higher frame-per-second,
