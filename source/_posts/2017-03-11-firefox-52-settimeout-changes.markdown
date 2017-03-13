@@ -46,8 +46,8 @@ How Does It Work?
 -----------------
 
 Firefox achieves this by implementing **yielding** between timer callbacks.
-After a timer callback is executed we allow any other non-timer event waiting
-to execute to complete before running the next timer callback.
+After a timer callback is executed we allow any other non-timer event pending
+in the queue to complete before running the next timer callback.
 
 For example, consider the case where we have a number of timer callbacks that
 want to run at the same time as a vsync refresh.  Its a bit of a race which
