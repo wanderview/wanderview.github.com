@@ -175,7 +175,7 @@ with more changes to event queue scheduling in general.
 [Demo Site]: https://people-mozilla.org/~bkelly/timer-flood/index.html
 [Nolan Lawson]: https://twitter.com/nolanlawson
 [IDB performance post]: https://nolanlawson.com/2015/09/29/indexeddb-websql-localstorage-what-blocks-the-dom/
-[Open Loop Animation Demo]: https://mozdevs.github.io/servo-experiments/experiments/tiles/
+["Open Loop" Animation Demo]: https://mozdevs.github.io/servo-experiments/experiments/tiles/
 [single bug report]: https://bugzilla.mozilla.org/show_bug.cgi?id=1342854
 [file a bug]: https://bugzilla.mozilla.org/enter_bug.cgi?format=guided#h=dupes|Core|DOM
 [add me to the CC list]: https://bugzilla.mozilla.org/user_profile?login=bkelly%40mozilla.com
