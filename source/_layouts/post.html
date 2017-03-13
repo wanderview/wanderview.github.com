@@ -33,12 +33,20 @@ single: true
   <div class="container">
     <div class="row">
       <div class="col-md-8 col-md-offset-2">
-        {% if page.previous.url %}
+        {% if page.previous.url and page.previous.exclude != true %}
           <a class="pull-left" href="{{page.previous.url}}" title="Previous Post: {{page.previous.title}}">&laquo; Previous: {{page.previous.title}}</a>
+        {% else %}
+          {% if page.previous.previous.url and page.previous.previous.exclude != true %}
+          <a class="pull-left" href="{{page.previous.previous.url}}" title="Previous Post: {{page.previous.previous.title}}">&laquo; Previous: {{page.previous.previous.title}}</a>
+          {% endif %}
         {% endif %}
 
-        {% if page.next.url %}
-          <a class="pull-right" href="{{page.next.url}}" title="Next Post: {{page.next.title}}">Next: {{page.next.title}} &raquo;</a>
+        {% if page.next.url and page.next.exclude != true %}
+          <a class="pull-right" href="{{page.next.url}}" title="Next Post: {{page.next.next.title}}">Next: {{page.next.title}} &raquo;</a>
+        {% else %}
+          {% if page.next.next.url and page.next.next.exclude != true %}
+          <a class="pull-right" href="{{page.next.next.url}}" title="Next Post: {{page.next.next.title}}">&laquo; Next: {{page.next.next.title}}</a>
+          {% endif %}
         {% endif %}
       </div>
     </div>
