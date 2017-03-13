@@ -1,9 +1,8 @@
 ---
 layout: post
 title: "Firefox 52 setTimeout() Changes"
-date: 2017-03-13 10:00:00 -0400
+date: 2017-03-13 09:30:00 -0400
 comments: false
-exclude: true
 large-image: /images/event-queue-yielding-timer-queue-twitter.png
 description: Firefox 52 hit the release channel last week and includes a few changes to `setTimeout()` and `setInterval()`.
 categories: [mozilla,dom,timer]
