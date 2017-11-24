@@ -19,9 +19,6 @@ var offlineAssets = [
   '/images/glyphicons_social_21_github.png',
   '/images/wifi-1-bar-xxl.png',
   '/stylesheets/screen.css',
-  '/javascripts/modernizr-2.0.js',
-  '/javascripts/libs/jquery.min.js',
-  '/javascripts/octopress.js',
 ];
 
 
