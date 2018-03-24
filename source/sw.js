@@ -17,6 +17,7 @@ var offlineAssets = [
   '/images/home.png',
   '/images/glyphicons_social_31_twitter.png',
   '/images/glyphicons_social_21_github.png',
+  '/images/glyphicons_social_mastodon.svg',
   '/images/wifi-1-bar-xxl.png',
   '/stylesheets/screen.css',
 ];
