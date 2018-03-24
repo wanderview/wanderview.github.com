@@ -5,7 +5,15 @@
   background-attachment: scroll;
   background-clip: border-box;
   background-color: #323232;
-  background-image: url("/images/background.jpg");
+  @media (min-width: 1281px) {
+    background-image: url("/images/background-1920-1080.jpg");
+  }
+  @media (max-width: 1280px) and (min-width:641px) {
+    background-image: url("/images/background-1280-720.jpg");
+  }
+  @media (max-width: 640px) {
+    background-image: url("/images/background-640-360.jpg");
+  }
   background-origin: padding-box;
   background-position: center;
   background-repeat: no-repeat;
