@@ -74,6 +74,10 @@ github_repo_count: 3
 github_show_profile_link: true
 github_skip_forks: true
 
+# Mastodon
+mastodon_user: wanderview
+mastodon_instance: toot.cafe
+
 # Twitter
 twitter_user: wanderview
 twitter_tweet_button: true

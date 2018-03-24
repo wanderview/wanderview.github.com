@@ -2,7 +2,10 @@
   <h4>about me</h4>
   <p>{{ site.description }}</p>
   <div class="social-icon-list">
-  	{% if site.twitter_user %}
+    {% if site.mastodon_user and site.mastodon_instance %}
+    <a title="Mastodon" href="https://{{site.mastodon_instance}}/@{{site.mastodon_user}}"><img src="/images/glyphicons_social_mastodon.svg"/></a>
+    {% endif %}
+    {% if site.twitter_user %}
     <a title="Twitter" href="https://twitter.com/{{ site.twitter_user }}"><img src="/images/glyphicons_social_31_twitter.png"/></a>
     {% endif %}
     {% if site.github_user %}
