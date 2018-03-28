@@ -33,14 +33,14 @@ Traditionally, browsers will begin dropping frames when this sort of thing
 happens and the GIF will stop animating.  For example, this video shows
 Firefox 45 ESR running the demo:
 
-<video src="/videos/timer-flood-45esr.mp4" controls width=480 class="center-block"></video>
+<video src="/videos/timer-flood-45esr.mp4" controls width="80%" class="center-block"></video>
 
 In Firefox 52, however, we have made changes which allows the browser to
 mostly survive this use case.  This video shows that, while there is a
 brief pause, the animated GIF continues to play fairly smoothly in spite
 of the timer flood.
 
-<video src="/videos/timer-flood-52.mp4" controls width=480 class="center-block"></video>
+<video src="/videos/timer-flood-52.mp4" controls width="80%" class="center-block"></video>
 
 How Does It Work?
 -----------------
@@ -146,13 +146,13 @@ for its step without measuring to see if the animation is behind.
 This demo site will cause pretty much every modern browser to drop to zero
 frames-per-second.  The total animation, however, will run quite quickly.
 
-<video src="/videos/open-loop-animation-45.mp4" controls width=480 class="center-block"></video>
+<video src="/videos/open-loop-animation-45.mp4" controls width="80%" class="center-block"></video>
 
 In Firefox 52, however, we end up delaying many of the timers due
 to our yielding.  This keeps the browser running at 30fps, but the animation
 takes much longer to complete:
 
-<video src="/videos/open-loop-animation-52.mp4" controls width=480 class="center-block"></video>
+<video src="/videos/open-loop-animation-52.mp4" controls width="80%" class="center-block"></video>
 
 This is an extreme case that we don't think reflects the typical behavior on
 most sites.  There are many ways to implement this animation without scheduling
