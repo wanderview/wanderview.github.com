@@ -183,6 +183,13 @@ time budget approach instead of a fixed number.  In addition, the [Quantum DOM][
 project will be experimenting with more changes to event queue scheduling in
 general.
 
+Update (3/30/2018)
+------------------
+
+NOTE: We implemented a time budget approach to yielding in [Firefox 55][].  By
+default Firefox will now execute consecutive timers for up to 4ms before forcing
+a yield.
+
 [changes to `setTimeout()` and `setInterval()`]: https://bugzilla.mozilla.org/show_bug.cgi?id=1300659
 [Demo Site]: https://people-mozilla.org/~bkelly/timer-flood/index.html
 [Nolan Lawson]: https://twitter.com/nolanlawson
@@ -192,3 +199,4 @@ general.
 [file a bug]: https://bugzilla.mozilla.org/enter_bug.cgi?format=guided#h=dupes|Core|DOM
 [add me to the CC list]: https://bugzilla.mozilla.org/user_profile?login=bkelly%40mozilla.com
 [Quantum DOM]: https://billmccloskey.wordpress.com/2016/10/27/mozillas-quantum-project/
+[Firefox 55]: https://bugzilla.mozilla.org/show_bug.cgi?id=1343912
