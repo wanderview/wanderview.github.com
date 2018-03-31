@@ -57,7 +57,7 @@ important because if it's delayed then the site's frame-per-second will drop.
 With this in mind, consider the "best" case and "worst" case for scheduling
 the events:
 
-{% img center-block /images/event-queue-flood.png %}
+<img src="/images/event-queue-flood.svg" width="100%" class="center-block"/>
 
 In the best case the refresh runs first and is not delayed.  In the worst
 case the refresh is delayed until all the timer callbacks have executed.  In
@@ -66,7 +66,7 @@ extreme cases, like the demo above, this delay can be quite long.
 Yielding between timer callbacks changes the situation so that the worst case
 looks like this instead:
 
-{% img center-block /images/event-queue-yielding-effect.png %}
+<img src="/images/event-queue-yielding-effect.svg" width="100%" class="center-block"/>
 
 Now, the refresh will be delayed by at most one timer callback.
 
@@ -75,7 +75,7 @@ a better way to think of it is that timers are stored in a separate queue.
 Only a single timer is allowed to be scheduled on the main event queue at
 any time.
 
-{% img center-block /images/event-queue-yielding-timer-queue.png %}
+<img src="/images/event-queue-yielding-timer-queue.svg" width="100%" class="center-block"/>
 
 So after "callback 1" completes here "callback 2" will be placed on the
 main event queue at the end.  This allows the refresh event to execute next.
@@ -129,7 +129,7 @@ the paints can happen.  When the browser cannot execute the paints at
 60 FPS, then you will get at most one timer callback between each refresh
 driver event.
 
-{% img center-block /images/event-queue-expensive-paint.png %}
+<img src="/images/event-queue-expensive-paint.svg" width="100%" class="center-block"/>
 
 This is not a problem for "closed loop" animations where you measure how long
 things are taking to run and adjust your changes to match.  It can, however,
