@@ -7,7 +7,7 @@ title: wanderview
 subtitle: "~ a boring technical blog ~"
 author: Ben Kelly
 simple_search: https://google.com/search
-description: "My name is Ben Kelly.  I'm a software engineer working on the DOM team at Mozilla. <br/>See my <a target='_blank' href='https://mozillians.org/en-US/u/bkelly/'>Mozillians profile</a> for more contact information."
+description: "My name is Ben Kelly.  I'm a software engineer working on the DOM team at Mozilla."
 
 # Default date format is "ordinal" (resulting in "July 22nd 2007")
 # You can customize the format as defined in
@@ -51,12 +51,13 @@ titlecase: true       # Converts page and post titles to titlecase
 
 # list each of the sidebar modules you want to include, in the order you want them to appear.
 # To add custom asides, create files in /source/_includes/custom/asides/ and add them to the list like 'custom/asides/custom_aside_name.html'
-default_asides: [asides/recent_posts.html,
-                 asides/github.html,
-                 asides/delicious.html,
-                 asides/pinboard.html,
-                 asides/googleplus.html,
-                 custom/asides/twitter.html]
+default_asides: []
+#default_asides: [asides/recent_posts.html,
+#                 asides/github.html,
+#                 asides/delicious.html,
+#                 asides/pinboard.html,
+#                 asides/googleplus.html,
+#                 custom/asides/twitter.html]
 
 # Each layout uses the default asides, but they can have their own asides instead. Simply uncomment the lines below
 # and add an array with the asides you want to use.
