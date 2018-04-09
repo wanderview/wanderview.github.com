@@ -87,7 +87,7 @@ Cache implementation.
 With those primitives in mind, the overall structure of the Cache implementation
 looks like this:
 
-{% img /images/cache-high-level-design.png %}
+<img class="center-block" src="/images/cache-high-level-design.png"/>
 
 Here we see from left-to-right:
 
@@ -155,7 +155,7 @@ As I mentioned above, the Cache spec indicates each origin should have its own
 isolated `caches` object.  This maps to a single Manager instance for all
 CacheStorage and Cache objects for scripts running in the same origin:
 
-{% img /images/cache-singleton-manager.png %}
+<img class="center-block" src="/images/cache-singleton-manager.png"/>
 
 Its important that all operations for a single origin are routed through the
 same Manager because operations in different script contexts can interact with
@@ -369,7 +369,7 @@ need to trace what happens when `caches` is touched.  When the `caches`
 attribute is first accessed on the global we create the CacheStorage DOM object
 and IPC actors.
 
-{% img /images/cache-create-actor.png %}
+<img class="center-block" src="/images/cache-create-actor.png"/>
 
 I've numbered each step in order to show the sequence of events.  These steps
 are roughly:
@@ -395,7 +395,7 @@ are roughly:
 Now that we have the `caches` object we can get on with the `open()`.  This
 sequence of steps is more complex:
 
-{% img /images/cache-open-sequence.png %}
+<img class="center-block" src="/images/cache-open-sequence.png"/>
 
 There are a lot more steps here.  To avoid making this blog post any more
 boring than necessary, I'll focus on just the interesting ones.
@@ -425,7 +425,7 @@ returned to the JS script in first step.  All of this occurs in **steps 12 to
 On the off chance you're still reading this section, the script next performs
 a `put()` on the cache:
 
-{% img /images/cache-put-sequence.png %}
+<img class="center-block" src="/images/cache-put-sequence.png"/>
 
 This trace looks similar to the last one, with the main difference occurring in the
 Action on the right.  While this is true, its important to note that the
@@ -444,7 +444,7 @@ completion.  The `put()` operation resolves undefined in the success case.
 
 Finally the script can use `match()` to read the data back out of the Cache:
 
-{% img /images/cache-match-sequence.png %}
+<img class="center-block" src="/images/cache-match-sequence.png"/>
 
 In this trace the Action must first query the SQLite tables to determine if
 the Request exists in the Cache.  If it does, then it opens a stream to the

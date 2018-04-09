@@ -14,7 +14,7 @@ backup your work?
 If you answered yes to both those questions, then there is a good chance you
 will be looking at this dialogue box at some point.
 
-{% img center /images/time-machine-failure.png %}
+<img class="center-block" src="/images/time-machine-failure.png"/>
 
 <!-- more -->
 

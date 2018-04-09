@@ -51,7 +51,7 @@ Consider this [demo site][] ([source code][]).  Open it with your devtools netwo
 It should work in both Firefox and Chrome release channels.  (There is an [issue][]
 with Chrome on windows, though.)
 
-{% img /images/upgrades-initial.png 800 446 %}
+<img class="center-block" src="/images/upgrades-initial.png" width="800"/>
 
 The buttons let you simulate upgrading a cache as the service worker would.  Each
 version of the cache stores two resources; JQuery and Bootstrap.  The contents of
@@ -68,7 +68,7 @@ So, to model the typical upgrade process you would click:
 
 This creates the following network traffic.
 
-{% img /images/upgrades-no-delta.png 800 215 %}
+<img class="center-block" src="/images/upgrades-no-delta.png" width="800"/>
 
 However, if you click the load buttons in sequence without clearing, then we
 can see an optimization at work.  So:
@@ -79,7 +79,7 @@ can see an optimization at work.  So:
 
 Which gives us:
 
-{% img /images/upgrades-with-delta.png 800 215 %}
+<img class="center-block" src="/images/upgrades-with-delta.png" width="800"/>
 
 In this case the v2 and v3 network traffic has been reduced by a factor of ten.
 

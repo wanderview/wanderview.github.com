@@ -8,7 +8,7 @@ large-image: /images/highlighter-small.jpg
 categories: [mozilla,google,apple,microsoft,samsung,serviceworker,dom,cache,fetch]
 ---
 
-{% img pull-right /images/highlighter-small.jpg %}
+<img class="pull-right" src="/images/highlighter-small.jpg"/>
 
 Last week folks from Apple, Google, Microsoft, Mozilla, and Samsung met in San Francisco
 to talk about service workers.  The focus was on addressing problems with the

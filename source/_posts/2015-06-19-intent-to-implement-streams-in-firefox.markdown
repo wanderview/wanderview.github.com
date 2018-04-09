@@ -7,7 +7,7 @@ image: /images/logo-streams.svg
 categories: mozilla,streams
 ---
 
-{% img pull-right /images/logo-streams.svg 100 100 %}
+<img class="pull-right" src="/images/logo-streams.svg" width="100"/>
 
 In the next few months I intend to begin implementing the [Streams API][]
 in the Gecko codebase.

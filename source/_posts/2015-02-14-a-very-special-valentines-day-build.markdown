@@ -8,7 +8,7 @@ image: /images/sw-candy-heart.jpg
 categories: [mozilla,serviceworker,dom,cache,fetch]
 ---
 
-{% img pull-right /images/sw-candy-heart.jpg %}
+<img class="pull-right" src="/images/sw-candy-heart.jpg"/>
 
 Last week we [introduced some custom Firefox builds][] that include our
 work-in-progress on Service Workers.  The goal of these builds is to enable

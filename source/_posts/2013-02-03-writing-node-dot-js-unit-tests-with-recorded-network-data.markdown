@@ -69,11 +69,11 @@ This might be more clear with some pictures.
 The following diagram represents the logical flow of data using a real
 [net.Socket][] object.
 
-{% img center /images/net-socket-simple.png %}
+<img class="center-block" src="/images/net-socket-simple.png"/>
 
 In contrast, the [pcap-socket][] configuration looks like this:
 
-{% img center /images/pcap-socket-diagram.png %}
+<img class="center-block" src="/images/pcap-socket-diagram.png"/>
 
 Here is an example of using the `output` stream to validate your code's
 response.  Note, this uses the new streams2 API, but you can also use

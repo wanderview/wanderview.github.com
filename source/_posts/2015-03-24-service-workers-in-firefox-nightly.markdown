@@ -8,7 +8,7 @@ image: /images/nightly-logo-tiny.png
 categories: [mozilla,serviceworker,dom,cache,fetch]
 ---
 
-{% img pull-right /images/nightly-logo-small.png 200 200 %}
+<img class="pull-right" src="/images/nightly-logo-small.png" width="200"/>
 
 I'm pleased to announce that we now recommend normal Nightly builds for testing
 our implementation of Service Workers.  We will not be posting any more custom

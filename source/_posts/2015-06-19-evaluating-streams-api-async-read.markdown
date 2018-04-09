@@ -106,7 +106,7 @@ The [code for the micro benchmark][] is available on Github.  You can also
 So, what kind of results did this benchmark produce?  First, lets compare native
 promises to Bluebird promises.
 
-{% img /images/streams-micro-promise-type-chart.png %}
+<img class="center-block" src="/images/streams-micro-promise-type-chart.png"/>
 
 Here we can see that Bluebird promises are currently significantly faster than
 native promises in this test.  This is not terribly surprising as there are
@@ -118,7 +118,7 @@ Based on these results, we'll just focus on the Bluebird results from now on.
 
 With that in mind, lets see how things look on a desktop platform.
 
-{% img /images/streams-micro-desktop-chart.png %}
+<img class="center-block" src="/images/streams-micro-desktop-chart.png"/>
 
 This shows that on both Chrome and Firefox the synchronous read loop achieves
 greater throughput than the async read loop.  In addition, the sync read loop
@@ -127,7 +127,7 @@ of buffered chunks in the pipe.
 
 Now lets look at performance on a Nexus5.
 
-{% img /images/streams-micro-mobile-chart.png %}
+<img class="center-block" src="/images/streams-micro-mobile-chart.png"/>
 
 This shows a similar story, although the throughput is greatly reduced (as
 we would expect for a such a device).  The drop off for the async read is
@@ -152,7 +152,7 @@ So next we attempted to write a macro level benchmark that compares the
 impact of async read on a system using streams.  This was much more difficult.
 We finally settled on a Rube-Goldberg setup like this:
 
-{% img /images/streams-macro-benchmark-diagram.png %}
+<img class="center-block" src="/images/streams-macro-benchmark-diagram.png"/>
 
 Here we have a node.js server that responds to an HTTP request by echoing
 back time stamps in a stream.  The browser receives these time stamps using
@@ -189,7 +189,7 @@ time I instead restarted the test when this occurred.
 For this test we did not vary any settings.  Instead we simply measured
 the throughput across 20 executions and took the mean.
 
-{% img /images/streams-macro-throughput-chart.png %}
+<img class="center-block" src="/images/streams-macro-throughput-chart.png"/>
 
 We can see a few things here.  First, the Nexus5 achieves about 80% of the
 throughput of desktop.  The main exception is the async read case using

@@ -23,7 +23,7 @@ point of view.  [Flipkart introduced][] their new Progressive Web App (PWA),
 Flipkart Lite, in November 2015.
 
 <a href="https://medium.com/@AdityaPunjani/building-flipkart-lite-a-progressive-web-app-2c211e641883#.8s518y8ke">
-{% img center-block /images/flipkart-lite-announce.png 400 %}
+<img class="center-block" src="/images/flipkart-lite-announce.png" width="400"/>
 </a>
 
 This was great news and very exciting.  I think everyone was happy to see
@@ -37,13 +37,13 @@ Because of this, however, Google was [directly associated][] with Flipkart's
 new site.
 
 <a href="http://blogs.wsj.com/digits/2015/11/09/google-lures-flipkart-back-to-the-mobile-web/">
-{% img center-block highlight /images/wsj-google-flipkart.png 400 %}
+<img class="center-block highlight" src="/images/wsj-google-flipkart.png" width="400"/>
 </a>
 
 Eventually Google began [promoting Flipkart Lite][] directly on their own site.
 
 <a href="https://developers.google.com/web/showcase/2016/flipkart">
-{% img center-block /images/google-flipkart-case.png 400 %}
+<img class="center-block" src="/images/google-flipkart-case.png" width="400"/>
 </a>
 
 Again, its great to show the success that companies can achieve by building on
@@ -54,7 +54,7 @@ damaging to the health of the web.  At the time of launch, users received
 the following experience if they visited Flipkart Lite in any browser other than
 Chrome:
 
-{% img center-block /images/flipkart.gif 280 %}
+<img class="center-block" src="/images/flipkart.gif" width="280"/>
 
 Here they are redirecting browsers that are not in their whitelist to the
 native app Play Store.  They are showing zero web content and forcing
