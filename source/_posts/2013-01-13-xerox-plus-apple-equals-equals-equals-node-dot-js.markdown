@@ -6,7 +6,7 @@ comments: false
 categories: 
 ---
 
-{% img right /images/xerox6128mfp.jpg 275 265 %}
+<img class="pull-right" src="/images/xerox6128mfp.jpg" width="275"/>
 
 <!-- more -->
 
@@ -27,7 +27,7 @@ For nearly a year, all was well.  We scanned.  We printed.  A few times in
 color at first, to prove that it worked, and then mostly in black-and-white
 so as not to be wasteful.
 
-{% img left /images/apple-mac-os-x-lion-10-7.jpg %}
+<img class="pull-left" src="/images/apple-mac-os-x-lion-10-7.jpg"/>
 
 Then in August, 2011 we decided to upgrade our laptops.  Snow Leopard was
 clearly not fierce enough and we needed to move to Lion.  I had waited
@@ -58,7 +58,7 @@ This left us with only a few solutions:
 
 [configuration changes]: https://discussions.apple.com/thread/3196311?start=30&tstart=
 
-{% img right /images/nodejs-dark.png 245 332 %}
+<img class="pull-right" src="/images/nodejs-dark.png" width="245"/>
 
 After careful consideration I have chosen to try something completely
 different:
