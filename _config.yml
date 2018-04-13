@@ -22,10 +22,14 @@ url: "https://blog.wanderview.com" # the base hostname & protocol for your site,
 permalink: /blog/:year/:month/:day/:title:output_ext
 twitter_username: wanderview
 github_username:  wanderview
+mastodon:
+  - username: wanderview
+    instance: toot.cafe
 
 # Build settings
 markdown: kramdown
 theme: minima
+show_excerpts: true
 plugins:
   - jekyll-feed
 
