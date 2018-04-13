@@ -6,14 +6,46 @@ comments: false
 categories: [mozilla,serviceworker,dom]
 ---
 
-Fascinating intro...
+Firefox 59 shipped a few weeks ago and includes a new implementation of the
+service worker Clients API.  It took me close to a year to complete these
+rewrite.  This post will discuss why the Clients API needed to reworked
+and will describe the design of the new architecture.
 
 <!-- more -->
 
 The Clients API
 ---------------
 
-* Summarize the api...
+First, what is the service worker Clients API?
+
+In short, the Clients API:
+
+1. Represents all globals (windows/iframes/workers/etc) as Client objects.
+2. Allows scripts to query the list of all same-origin Client objects active in the
+   browser using the `Clients.matchAll()` method.
+3. Allows scripts to create new window Client objects using the `Clients.openWindow()`
+   method.
+4. Allows scripts to navigate window Client objects to a new URL using the
+   `Client.navigate()` method.
+5. Allows scripts to message Client objects using a `Client.postMessage()` method.
+
+Here is an example script the queries all of the same-origin Client objects
+and posts a message telling them what kind of Client they are.
+
+```javascript
+let list = await clients.matchAll({ includeUncontrolled: true });
+list.forEach(client => {
+  client.postMessage('You are a ' + client.type + ' client!');
+});
+```
+
+Currently the Clients API is only exposed on service worker threads.  In the
+future it [may be exposed on window and worker globals][] as well.
+
+For more information on the Clients API itself, please see the [documentation on MDN][].
+
+[may be exposed on window and worker globals]: https://github.com/w3c/ServiceWorker/issues/955
+[documentation on MDN]: https://developer.mozilla.org/en-US/docs/Web/API/Clients
 
 The Problem
 -----------
