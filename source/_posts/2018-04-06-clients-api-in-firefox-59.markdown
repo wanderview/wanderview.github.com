@@ -7,9 +7,9 @@ categories: [mozilla,serviceworker,dom]
 ---
 
 Firefox 59 shipped a few weeks ago and includes a new implementation of the
-service worker Clients API.  It took me close to a year to complete these
-rewrite.  This post will discuss why the Clients API needed to reworked
-and will describe the design of the new architecture.
+service worker Clients API.  It took me close to a year to design and code
+these changes.  This post will discuss why the Clients API needed to be
+reworked and will describe the new architecture.
 
 <!-- more -->
 
@@ -25,9 +25,8 @@ In short, the Clients API:
    browser using the `Clients.matchAll()` method.
 3. Allows scripts to create new window Client objects using the `Clients.openWindow()`
    method.
-4. Allows scripts to navigate window Client objects to a new URL using the
-   `Client.navigate()` method.
-5. Allows scripts to message Client objects using a `Client.postMessage()` method.
+4. Allows scripts to interact with a given Client via methods like `postMessage()`,
+   `focus()`, and `navigate()`.
 
 Here is an example script the queries all of the same-origin Client objects
 and posts a message telling them what kind of Client they are.
@@ -55,10 +54,10 @@ The Problem
 More Problems
 -------------
 
+* Support initial about:blank behavior
 * Support windows and workers as clients
 * Support nsIChannel on separate thread from workers
 * Prepare to support FetchEvent.resultingClientId
-* Prepare to support site isolation
 
 Goals
 -----
