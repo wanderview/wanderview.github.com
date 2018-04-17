@@ -141,17 +141,67 @@ gap where it could not.
 
 ### FetchEvent.resultingClientId
 
-### nsIChannel
+An added factor to consider in this effort was a new feature added to the
+spec.  The `FetchEvent.resultingClientId` is intended to represent the client
+that will come into existence if a document navigation or worker script load
+succeeds.  It represents a client before it exists.
+
+While the work performed for Firefox 59 does not implement resultingClientId
+yet, it was important to plan for it.  We really did not want to have to
+rewrite the Clients API for a third time.
+
+To that end the design needed to:
+
+* Create the instantiate the potential Client before the network request.
+* Determine the correct origin for the potential Client and properly handle
+  if the network request redirected to a different origin.
+
+These two items were particularly difficult to support for worker clients.
+
+First, the internal network primitive in Firefox is called an nsIChannel
+and can only be used on the main thread.  This means that any client
+information attached to the nsIChannel would need to be used on a thread
+different from the worker thread that owns the client.
+
+Also, the existing worker code largely delayed determining its final
+origin until after the nsIChannel completed loading.  This was a convenience
+because our origin primitive, the nsIPrincipal, is also only permitted to
+be used on the main thread.
+
+Finally, the resultingClientId feature also interacted with the initial
+about:blank windows mentioned earlier.  When an initial about:blank is
+present then the resultingClientId already exists and is simply be
+populated by the network load.
+
+### Performance
+
+The last issue to consider in the design was overall browser performance.
+As with most features its possible to optimize some operations at the
+expense of other operations.
+
+What needs to be fast?  Is `clients.matchAll()` the most important feature
+to optimize?
+
+In this case I decided it was best to optimize for fast client creation
+and destruction.  The browser creates a lot of globals over the course
+of its lifetime.  These have a direct impact on user visibile performance
+like page load time.  Its better to keep creation quick and make querying
+take longer.
 
 ## Goals
 
-* Equal support for both main thread windows and OMT worker clients
-* Client identity must be created before the non-subresource network request
-* Threadsafe data type for referencing client identity
-* Serializable data type for referencing clients across process boundaries
-* Ability to search list of known clients across process boundaries
-* Ability to attach to a known client to query or control it
-* Fast to create/destroy clients
+Based on the problem space the design had to meet these goals:
+
+1. Equal support for both main thread windows and off-main-thread worker clients.
+2. Client identity must be created before the non-subresource network request.
+3. Threadsafe data type for referencing client identity across thread boundaries.
+4. Serializable data type for referencing clients across process boundaries.
+5. Ability to search list of known clients across process boundaries.
+6. Ability to attach to a known client to query or control it.
+7. Fast to create/destroy clients.
+
+Now that we know what we need to build, the next section will discuss how the
+design accomplishes these goals.
 
 ## Design
 
