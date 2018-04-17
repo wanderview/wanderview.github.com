@@ -20,17 +20,24 @@ description: >- # this means to ignore newlines until "baseurl:"
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "https://blog.wanderview.com" # the base hostname & protocol for your site, e.g. http://example.com
 permalink: /blog/:year/:month/:day/:title:output_ext
-twitter_username: wanderview
+#twitter_username: wanderview
 github_username:  wanderview
+#linkedin_username: wanderview
 mastodon:
   - username: wanderview
     instance: toot.cafe
+rss: subscribe
 
 # Build settings
 markdown: kramdown
 theme: minima
 show_excerpts: true
 plugins:
+
+collections:
+  hidden:
+    permalink: /blog/:year/:month/:day/:title:output_ext
+    output: true
 
 # Exclude from processing.
 # The following items will not be processed, by default. Create a custom list
