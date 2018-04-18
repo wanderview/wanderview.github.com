@@ -190,7 +190,8 @@ take longer.
 
 ## Goals
 
-Based on the problem space the design had to meet these goals:
+Based on the problem space described above, I chose to focus the design
+on these goals:
 
 1. Equal support for both main thread windows and off-main-thread worker clients.
 2. Client identity must be created before the non-subresource network request.
@@ -200,9 +201,18 @@ Based on the problem space the design had to meet these goals:
 6. Ability to attach to a known client to query or control it.
 7. Fast to create/destroy clients.
 
-Now that we know what we need to build, the next section will discuss how the
-design accomplishes these goals.
+The next section will discuss how the new Clients API design meets these goals.
 
 ## Design
 
-Pretty pictures...
+Basic Structure
+
+Window ClientSource
+
+Worker ClientSource
+
+ClientInfo for threadsafe identity
+
+nsIChannel integration
+
+ClientHandle

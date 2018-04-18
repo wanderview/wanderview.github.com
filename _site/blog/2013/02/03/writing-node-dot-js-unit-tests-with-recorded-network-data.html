@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.4.0 -->
+<title>Writing Node.js Unit Tests With Recorded Network Data | wanderview</title>
+<meta name="generator" content="Jekyll v3.7.3" />
+<meta property="og:title" content="Writing Node.js Unit Tests With Recorded Network Data" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Automated unit tests are a wonderful thing. They help give you the confidence to make difficult changes and are your first line of defense against regressions. Unfortunately, however, unit tests typically only validate code against the same expectations and pre-conceived notions we used to write the code in the first place. All to often we later find our expectations do not match reality." />
+<meta property="og:description" content="Automated unit tests are a wonderful thing. They help give you the confidence to make difficult changes and are your first line of defense against regressions. Unfortunately, however, unit tests typically only validate code against the same expectations and pre-conceived notions we used to write the code in the first place. All to often we later find our expectations do not match reality." />
+<link rel="canonical" href="http://localhost:4000/blog/2013/02/03/writing-node-dot-js-unit-tests-with-recorded-network-data.html" />
+<meta property="og:url" content="http://localhost:4000/blog/2013/02/03/writing-node-dot-js-unit-tests-with-recorded-network-data.html" />
+<meta property="og:site_name" content="wanderview" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2013-02-03T22:59:00-05:00" />
+<script type="application/ld+json">
+{"description":"Automated unit tests are a wonderful thing. They help give you the confidence to make difficult changes and are your first line of defense against regressions. Unfortunately, however, unit tests typically only validate code against the same expectations and pre-conceived notions we used to write the code in the first place. All to often we later find our expectations do not match reality.","@type":"BlogPosting","url":"http://localhost:4000/blog/2013/02/03/writing-node-dot-js-unit-tests-with-recorded-network-data.html","headline":"Writing Node.js Unit Tests With Recorded Network Data","dateModified":"2013-02-03T22:59:00-05:00","datePublished":"2013-02-03T22:59:00-05:00","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/blog/2013/02/03/writing-node-dot-js-unit-tests-with-recorded-network-data.html"},"@context":"http://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="wanderview" /></head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">wanderview</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path fill="#424242" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+              <path fill="#424242" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484 h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+              <path fill="#424242" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/archive.html">Archive</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Writing Node.js Unit Tests With Recorded Network Data</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2013-02-03T22:59:00-05:00" itemprop="datePublished">Feb 3, 2013
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p>Automated unit tests are a wonderful thing.  They help give you the
+confidence to make difficult changes and are your first line of
+defense against regressions.  Unfortunately, however, unit tests
+typically only validate code against the same expectations and
+pre-conceived notions we used to write the code in the first place.
+All to often we later find our expectations do not match reality.</p>
+
+<p>One way to minimize this problem is to write your tests using real world
+data.  In the case of network code, this can be done by recording traffic
+to a <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file and then playing it back as the input to your test.</p>
+
+<p>In this post I will discuss how to do this in <a href="http://nodejs.org">node.js</a> using the
+<a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> module.</p>
+
+<!-- more -->
+
+<h2 id="module-overview">Module Overview</h2>
+
+<p>There are currently a couple of options for accessing <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> data in
+<a href="http://nodejs.org">node.js</a>:</p>
+
+<ul>
+  <li>The <a href="https://github.com/mranney/node_pcap#readme">pcap module</a> provides a wrapper around the native libpcap library.</li>
+  <li>The <a href="https://github.com/nearinfinity/node-pcap-parser#readme">pcap-parser</a> module provides a pure JavaScript implementation.</li>
+</ul>
+
+<p>In both cases, however, the data is provided in a raw form which still
+includes the Ethernet frame, the IP header, and the TCP header.  The code
+to be tested, however, probably expects data as provided by <a href="http://nodejs.org/api/net.html#net_class_net_socket">net.Socket</a>
+with all of these headers stripped.  This makes it awkward and tedious to
+write tests against <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> files.</p>
+
+<p>To address this problem I’ve written a socket compatibility wrapper around
+<a href="https://github.com/nearinfinity/node-pcap-parser#readme">pcap-parser</a> called <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a>.  This wrapper implements just enough
+logic to parse and strip the network headers.  Data is then provided
+to your test code using the same API provided by <a href="http://nodejs.org/api/net.html#net_class_net_socket">net.Socket</a>.</p>
+
+<p>Creating a <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> requires the path to the <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file and
+an IP address:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">PcapSocket</span> <span class="o">=</span> <span class="nx">require</span> <span class="p">(</span><span class="s1">'pcap-socket'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">file</span> <span class="o">=</span> <span class="nx">path</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span> <span class="s1">'data'</span><span class="p">,</span> <span class="s1">'http-session-winxp.pcap'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">psocket</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">PcapSocket</span><span class="p">(</span><span class="nx">file</span><span class="p">,</span> <span class="s1">'10.0.1.6'</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>The IP address is required in order to tell <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> which end of
+the recorded session you would like to pretend to be.  Any data sent to this
+address in your file will be treated as data to be delivered by the socket.</p>
+
+<p>This handles the incoming side, but what about writing data out?</p>
+
+<p>In this case the packets originating for your configured address in the
+<a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file will be ignored.  We are less interested in how the real
+server responded during your recording than how the code under test responds.</p>
+
+<p>Therefore, data written to the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> gets placed in a separate
+<code class="highlighter-rouge">output</code> stream.  This lets you write tests that examine and validate
+responses for correctness.</p>
+
+<p>This might be more clear with some pictures.</p>
+
+<p>The following diagram represents the logical flow of data using a real
+<a href="http://nodejs.org/api/net.html#net_class_net_socket">net.Socket</a> object.</p>
+
+<p><img class="center-block" src="/images/net-socket-simple.png" /></p>
+
+<p>In contrast, the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> configuration looks like this:</p>
+
+<p><img class="center-block" src="/images/pcap-socket-diagram.png" /></p>
+
+<p>Here is an example of using the <code class="highlighter-rouge">output</code> stream to validate your code’s
+response.  Note, this uses the new streams2 API, but you can also use
+the more traditional <code class="highlighter-rouge">on('data')</code> API as well.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'readable'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+  <span class="kd">var</span> <span class="nx">chunk</span> <span class="o">=</span> <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">156</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="nx">chunk</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">str</span> <span class="o">=</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">toString</span><span class="p">();</span>
+
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/HTTP</span><span class="se">\/</span><span class="sr">1.1 200 OK/</span><span class="p">));</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/Content-Type: text</span><span class="se">\/</span><span class="sr">plain/</span><span class="p">));</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="k">new</span> <span class="nb">RegExp</span><span class="p">(</span><span class="nx">msg</span><span class="p">)));</span>
+
+    <span class="nx">test</span><span class="p">.</span><span class="nx">done</span><span class="p">();</span>
+  <span class="p">}</span>
+<span class="p">});</span>
+<span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+</code></pre></div></div>
+
+<h2 id="record-your-network-data">Record Your Network Data</h2>
+
+<p>Now that we’ve covered the basic <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> concepts, the next step is to
+record some network data in the <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file format.  If you are already
+comfortable with network monitoring tools, you may wish to skip to the next
+section.</p>
+
+<p>The easiest way to do this is either with the UNIX command line tool
+<a href="http://www.tcpdump.org/">tcpdump</a> or with the graphical <a href="http://www.wireshark.org/">wireshark</a> application.  In either
+case, you first need to set up the monitoring tool with a filter matching
+the type of data you want to collect.</p>
+
+<p>For example, in <a href="http://www.tcpdump.org/">tcpdump</a> you might do the following to record HTTP
+sessions from a particular host.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>tcpdump <span class="nt">-i</span> en1 <span class="nt">-w</span> data.pcap port 80 and host 10.0.1.12
+</code></pre></div></div>
+
+<p>Note that <code class="highlighter-rouge">sudo</code> is required since putting the network interface
+into promiscuous mode requires administrator privileges.  Also, you
+typically must specify the correct network interface using the <code class="highlighter-rouge">-i</code>
+option.  Here I am specifying my MacBook’s wireless interface.</p>
+
+<p>Once the filter is running, perform whatever actions you need to in
+order to trigger the network traffic.  This could be using the browser to
+hit a web page, executing a query against a database, etc.</p>
+
+<p>Make sure to use save the results to a file using the <code class="highlighter-rouge">-w data.pcap</code>
+option in <a href="http://www.tcpdump.org/">tcpdump</a> or <code class="highlighter-rouge">Save As</code> in <a href="http://www.wireshark.org/">wireshark</a>..  You can then replay
+the data at any time with this command:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>tcpdump <span class="nt">-r</span> data.pcap
+</code></pre></div></div>
+
+<p>If you end up with more data in your file then you would like, you can
+specify a more strict filter and write the data out again to a second
+file.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>tcpdump <span class="nt">-r</span> data.pcap <span class="nt">-w</span> data2.pcap host 10.0.1.6
+</code></pre></div></div>
+
+<p>Ideally you should aim to have the minimum amount of data in your file
+required to represent a real-world instance of the situation you want
+to test.</p>
+
+<h2 id="write-your-unit-test">Write Your Unit Test</h2>
+
+<p>Your unit test will typically need a few standard sections:</p>
+
+<ul>
+  <li>Create the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> from the <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file.</li>
+  <li>Write some response validation code that reads from the <code class="highlighter-rouge">output</code> stream.</li>
+  <li>Pass the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> to your code in some way.  Hopefully there
+is an easy way to introduce the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> in place of <a href="http://nodejs.org/api/net.html#net_class_net_socket">net.Socket</a>.
+You may need to get creative here or refactor the code to support this.</li>
+</ul>
+
+<p>As an example, lets test everyone’s first <a href="http://nodejs.org">node.js</a> program; the simple
+hello world web server:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// Setup an HTTP server to test</span>
+<span class="kd">var</span> <span class="nx">server</span> <span class="o">=</span> <span class="nx">http</span><span class="p">.</span><span class="nx">createServer</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">req</span><span class="p">,</span> <span class="nx">res</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">res</span><span class="p">.</span><span class="nx">writeHead</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="p">{</span><span class="s1">'Content-Type'</span><span class="p">:</span> <span class="s1">'text/plain'</span><span class="p">});</span>
+  <span class="nx">res</span><span class="p">.</span><span class="nx">end</span><span class="p">(</span><span class="s1">'Hello World</span><span class="err">\</span><span class="s1">n'</span><span class="p">);</span>
+<span class="p">});</span>
+</code></pre></div></div>
+
+<p>Most of this test is actually shown in snippets above, but I will repeat
+them here for clarity.</p>
+
+<p>First, create the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a>:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">file</span> <span class="o">=</span> <span class="nx">path</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span> <span class="s1">'data'</span><span class="p">,</span> <span class="s1">'http-session-winxp.pcap'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">psocket</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">PcapSocket</span><span class="p">(</span><span class="nx">file</span><span class="p">,</span> <span class="s1">'10.0.1.6'</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Here the <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file is stored in the file
+<code class="highlighter-rouge">'./data/http-session-winxp.pcap'</code>.  I used <code class="highlighter-rouge">tcpdump</code> to examine the file
+and determine that the web server was bound to the IP address <code class="highlighter-rouge">10.0.1.6</code>.</p>
+
+<p>Next, write code that validates the response that should occur.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'readable'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+  <span class="kd">var</span> <span class="nx">chunk</span> <span class="o">=</span> <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">156</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="nx">chunk</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">str</span> <span class="o">=</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">toString</span><span class="p">();</span>
+
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/HTTP</span><span class="se">\/</span><span class="sr">1.1 200 OK/</span><span class="p">));</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/Content-Type: text</span><span class="se">\/</span><span class="sr">plain/</span><span class="p">));</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="k">new</span> <span class="nb">RegExp</span><span class="p">(</span><span class="nx">msg</span><span class="p">)));</span>
+
+    <span class="nx">test</span><span class="p">.</span><span class="nx">done</span><span class="p">();</span>
+  <span class="p">}</span>
+<span class="p">});</span>
+<span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Finally, to supply the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> to the HTTP server we take advantage
+of the fact that it internally listens for the <code class="highlighter-rouge">'connection'</code> event in order
+to begin processing a new session.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">server</span><span class="p">.</span><span class="nx">emit</span><span class="p">(</span><span class="s1">'connection'</span><span class="p">,</span> <span class="nx">psocket</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>All together the test looks like this:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">PcapSocket</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'pcap-socket'</span><span class="p">);</span>
+
+<span class="kd">var</span> <span class="nx">http</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'http'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">path</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'path'</span><span class="p">);</span>
+
+<span class="nx">module</span><span class="p">.</span><span class="nx">exports</span><span class="p">.</span><span class="nx">http</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">test</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">test</span><span class="p">.</span><span class="nx">expect</span><span class="p">(</span><span class="mi">3</span><span class="p">);</span>
+
+  <span class="kd">var</span> <span class="nx">msg</span> <span class="o">=</span> <span class="s1">'Hello World</span><span class="err">\</span><span class="s1">n'</span><span class="p">;</span>
+
+  <span class="c1">// Setup an HTTP server to test</span>
+  <span class="kd">var</span> <span class="nx">server</span> <span class="o">=</span> <span class="nx">http</span><span class="p">.</span><span class="nx">createServer</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">req</span><span class="p">,</span> <span class="nx">res</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">res</span><span class="p">.</span><span class="nx">writeHead</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="p">{</span><span class="s1">'Content-Type'</span><span class="p">:</span> <span class="s1">'text/plain'</span><span class="p">});</span>
+    <span class="nx">res</span><span class="p">.</span><span class="nx">end</span><span class="p">(</span><span class="nx">msg</span><span class="p">);</span>
+  <span class="p">});</span>
+
+  <span class="c1">// Configure the pcap socket to provide real, recorded network data</span>
+  <span class="kd">var</span> <span class="nx">file</span> <span class="o">=</span> <span class="nx">path</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span> <span class="s1">'data'</span><span class="p">,</span> <span class="s1">'http-session-winxp.pcap'</span><span class="p">);</span>
+  <span class="kd">var</span> <span class="nx">psocket</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">PcapSocket</span><span class="p">(</span><span class="nx">file</span><span class="p">,</span> <span class="s1">'10.0.1.6'</span><span class="p">);</span>
+
+  <span class="c1">// When the server sends back a response, validate that it makes sense</span>
+  <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'readable'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+    <span class="c1">// Read the full response; length determined by looking at pcap file</span>
+    <span class="kd">var</span> <span class="nx">chunk</span> <span class="o">=</span> <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">156</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">chunk</span><span class="p">)</span> <span class="p">{</span>
+      <span class="kd">var</span> <span class="nx">str</span> <span class="o">=</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">toString</span><span class="p">();</span>
+
+      <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/HTTP</span><span class="se">\/</span><span class="sr">1.1 200 OK/</span><span class="p">));</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/Content-Type: text</span><span class="se">\/</span><span class="sr">plain/</span><span class="p">));</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="k">new</span> <span class="nb">RegExp</span><span class="p">(</span><span class="nx">msg</span><span class="p">)));</span>
+
+      <span class="nx">test</span><span class="p">.</span><span class="nx">done</span><span class="p">();</span>
+    <span class="p">}</span>
+  <span class="p">});</span>
+  <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+
+  <span class="c1">// Supply the pcap socket to the HTTP server as a new connection</span>
+  <span class="nx">server</span><span class="p">.</span><span class="nx">emit</span><span class="p">(</span><span class="s1">'connection'</span><span class="p">,</span> <span class="nx">psocket</span><span class="p">);</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<h2 id="a-more-complex-example">A More Complex Example</h2>
+
+<p>The HTTP example is a good start, but ideally it would be nice to test a
+more complex case that spans a longer TCP session.</p>
+
+<p>The following code tests the <a href="https://github.com/wanderview/node-netbios-session#readme">netbios-session</a> module against a <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a>
+recording between my scanner and a Windows XP virtual machine.  It validates
+the request, positive response, and subsequent message stream.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">Session</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'../session'</span><span class="p">);</span>
+
+<span class="kd">var</span> <span class="nx">NBName</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'netbios-name'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">PcapSocket</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'pcap-socket'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">path</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'path'</span><span class="p">);</span>
+
+<span class="kd">var</span> <span class="nx">FILE</span> <span class="o">=</span> <span class="nx">path</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span> <span class="s1">'data'</span><span class="p">,</span> <span class="s1">'netbios-ssn-full-scanner-winxp.pcap'</span><span class="p">);</span>
+<span class="nx">module</span><span class="p">.</span><span class="nx">exports</span><span class="p">.</span><span class="nx">server</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">test</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">test</span><span class="p">.</span><span class="nx">expect</span><span class="p">(</span><span class="mi">7</span><span class="p">);</span>
+  <span class="kd">var</span> <span class="nx">psocket</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">PcapSocket</span><span class="p">(</span><span class="nx">FILE</span><span class="p">,</span> <span class="s1">'10.0.1.12'</span><span class="p">);</span>
+
+  <span class="kd">var</span> <span class="nx">session</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">Session</span><span class="p">();</span>
+
+  <span class="c1">// validate expected request</span>
+  <span class="nx">session</span><span class="p">.</span><span class="nx">attach</span><span class="p">(</span><span class="nx">psocket</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">error</span><span class="p">,</span> <span class="nx">request</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span> <span class="nx">error</span><span class="p">);</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="s1">'VMWINXP'</span><span class="p">,</span> <span class="nx">request</span><span class="p">.</span><span class="nx">callTo</span><span class="p">.</span><span class="nx">name</span><span class="p">);</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="s1">'PRINTER'</span><span class="p">,</span> <span class="nx">request</span><span class="p">.</span><span class="nx">callFrom</span><span class="p">.</span><span class="nx">name</span><span class="p">);</span>
+    <span class="nx">request</span><span class="p">.</span><span class="nx">accept</span><span class="p">();</span>
+  <span class="p">});</span>
+
+  <span class="c1">// validate that we receive all the expected bytes in the session</span>
+  <span class="kd">var</span> <span class="nx">length</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="nx">session</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'message'</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">msg</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">length</span> <span class="o">+=</span> <span class="nx">msg</span><span class="p">.</span><span class="nx">length</span><span class="p">;</span>
+  <span class="p">});</span>
+
+  <span class="c1">// validate positive response</span>
+  <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'readable'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">chunk</span> <span class="o">=</span> <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">4</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">chunk</span><span class="p">)</span> <span class="p">{</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="mh">0x82</span><span class="p">,</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">readUInt8</span><span class="p">(</span><span class="mi">0</span><span class="p">));</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">readUInt8</span><span class="p">(</span><span class="mi">1</span><span class="p">));</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">readUInt16BE</span><span class="p">(</span><span class="mi">2</span><span class="p">));</span>
+    <span class="p">}</span>
+  <span class="p">});</span>
+  <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+
+  <span class="c1">// validate session completes properly</span>
+  <span class="nx">session</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'end'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="mi">438</span><span class="p">,</span> <span class="nx">length</span><span class="p">);</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">done</span><span class="p">();</span>
+  <span class="p">});</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+
+  </div><a class="u-url" href="/blog/2013/02/03/writing-node-dot-js-unit-tests-with-recorded-network-data.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">wanderview</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">wanderview</li><li><a class="u-email" href="mailto:ben@wanderview.com">ben@wanderview.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#github"></use></svg> <span class="username">wanderview</span></a></li><li><a href="https://toot.cafe/@wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#mastodon"></use></svg> <span class="username">wanderview</span></a></li><li><a href="/feed.xml"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#rss"></use></svg> <span>subscribe</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>My name is Ben Kelly.  I&#39;m a software engineer working on the DOM team at Mozilla.</p>
+      </div>
+    </div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.4.0 -->
+<title>Composable Object Streams | wanderview</title>
+<meta name="generator" content="Jekyll v3.7.3" />
+<meta property="og:title" content="Composable Object Streams" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="In my last post I introduced the pcap-socket module to help test against real, captured network data. I was rather happy with how that module turned out, so I decided to mock out dgram next in order to support testing UDP packets as well." />
+<meta property="og:description" content="In my last post I introduced the pcap-socket module to help test against real, captured network data. I was rather happy with how that module turned out, so I decided to mock out dgram next in order to support testing UDP packets as well." />
+<link rel="canonical" href="http://localhost:4000/blog/2013/03/01/composable-object-streams.html" />
+<meta property="og:url" content="http://localhost:4000/blog/2013/03/01/composable-object-streams.html" />
+<meta property="og:site_name" content="wanderview" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2013-03-01T00:17:00-05:00" />
+<script type="application/ld+json">
+{"description":"In my last post I introduced the pcap-socket module to help test against real, captured network data. I was rather happy with how that module turned out, so I decided to mock out dgram next in order to support testing UDP packets as well.","@type":"BlogPosting","url":"http://localhost:4000/blog/2013/03/01/composable-object-streams.html","headline":"Composable Object Streams","dateModified":"2013-03-01T00:17:00-05:00","datePublished":"2013-03-01T00:17:00-05:00","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/blog/2013/03/01/composable-object-streams.html"},"@context":"http://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="wanderview" /></head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">wanderview</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path fill="#424242" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+              <path fill="#424242" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484 h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+              <path fill="#424242" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/archive.html">Archive</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Composable Object Streams</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2013-03-01T00:17:00-05:00" itemprop="datePublished">Mar 1, 2013
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p>In my <a href="/blog/2013/02/03/writing-node-dot-js-unit-tests-with-recorded-network-data/">last post</a> I introduced the <a href="https://github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> module to help test
+against real, captured network data.  I was rather happy with
+how that module turned out, so I decided to mock out <a href="http://nodejs.org/api/dgram.html">dgram</a> next in order
+to support testing UDP packets as well.</p>
+
+<!-- more -->
+
+<p>I almost immediately ran into a few issues:</p>
+
+<ol>
+  <li>The <code class="highlighter-rouge">dgram</code> module does not implement a streams2 <a href="http://nodejs.org/docs/v0.9.10/api/stream.html#stream_class_stream_duplex">duplex</a> API.  It
+still provides an old-style “spew-stream”.</li>
+  <li>I wanted to share code with <code class="highlighter-rouge">pcap-socket</code> for parsing ethernet
+frames and IP headers.</li>
+  <li>I also wanted to implement some missing features such IP fragment
+reassembly.  These types of features require operating across multiple
+packets and therefore fit the streaming model better than the
+simple utility function approach.</li>
+</ol>
+
+<p>Using the basic rebuffering byte streams provided by the new streams2 API
+seemed problematic.  For one, UDP packets are distinct and shouldn’t be
+summarily rebuffered.  Also, I needed a way to extract packet header
+information and pass it along with the byte stream.</p>
+
+<p>I was considering a couple ways to proceed when <a href="https://github.com/Raynos">Raynos</a> was kind enough
+to implement <a href="https://github.com/joyent/node/commit/444bbd4fa7315423a6b55aba0e0c12ea6534b2cb">object streams</a>.</p>
+
+<p>This seemed to solve a lot of my problems.  I could now turn off rebuffering
+and I could pass arbitrary objects around.</p>
+
+<p>The new object mode, however, did create one new issue.</p>
+
+<p>Now that streams are not just ordered bytes, how can I write general purpose
+composable streams other people could easily use?  If every person uses their
+own object structure then it could be very difficult to put together separate
+stream modules in a useful way.</p>
+
+<p>Over time I came up with an approach that seemed to work well for the network
+protocol domain.  Essentially, I structured messages like this:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">msg</span> <span class="o">=</span> <span class="p">{</span>
+  <span class="na">data</span><span class="p">:</span> <span class="nx">buf</span><span class="p">,</span>
+  <span class="na">offset</span><span class="p">:</span> <span class="mi">14</span><span class="p">,</span>
+  <span class="na">ether</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">src</span><span class="p">:</span> <span class="s1">'01:02:03:04:05:06'</span><span class="p">,</span>
+    <span class="na">dst</span><span class="p">:</span> <span class="s1">'06:05:04:03:02:01'</span><span class="p">,</span>
+    <span class="na">type</span><span class="p">:</span> <span class="s1">'ip'</span><span class="p">,</span>
+    <span class="na">length</span><span class="p">:</span> <span class="mi">14</span>
+  <span class="p">}</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>Each message is the combination of some binary <code class="highlighter-rouge">Buffer</code> data and additional
+meta-data.  In this example I have an ethernet frame that’s been parsed off
+the start of the <code class="highlighter-rouge">msg.data</code> buffer.</p>
+
+<p>After a full parsing chain:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">ipstream</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">IpStream</span><span class="p">();</span>
+<span class="kd">var</span> <span class="nx">udpstream</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">UdpStream</span><span class="p">();</span>
+<span class="nx">ipstream</span><span class="p">.</span><span class="nx">pipe</span><span class="p">(</span><span class="nx">udpstream</span><span class="p">);</span>
+
+<span class="nx">ipstream</span><span class="p">.</span><span class="nx">write</span><span class="p">(</span><span class="nx">msg</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">out</span> <span class="o">=</span> <span class="nx">udpstream</span><span class="p">.</span><span class="nx">read</span><span class="p">();</span>
+</code></pre></div></div>
+
+<p>The resulting <code class="highlighter-rouge">out</code> message might look like this:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">out</span> <span class="o">=</span> <span class="p">{</span>
+  <span class="na">data</span><span class="p">:</span> <span class="nx">buf</span><span class="p">,</span>
+  <span class="na">offset</span><span class="p">:</span> <span class="mi">42</span><span class="p">,</span>
+  <span class="na">ether</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">src</span><span class="p">:</span> <span class="s1">'01:02:03:04:05:06'</span><span class="p">,</span>
+    <span class="na">dst</span><span class="p">:</span> <span class="s1">'06:05:04:03:02:01'</span><span class="p">,</span>
+    <span class="na">type</span><span class="p">:</span> <span class="s1">'ip'</span><span class="p">,</span>
+    <span class="na">length</span><span class="p">:</span> <span class="mi">14</span>
+  <span class="p">},</span>
+  <span class="na">ip</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">src</span><span class="p">:</span> <span class="s1">'1.1.1.1'</span><span class="p">,</span>
+    <span class="na">dst</span><span class="p">:</span> <span class="s1">'2.2.2.2'</span><span class="p">,</span>
+    <span class="na">flags</span><span class="p">:</span> <span class="p">{</span>
+      <span class="na">df</span><span class="p">:</span> <span class="kc">false</span><span class="p">,</span>
+      <span class="na">mf</span><span class="p">:</span> <span class="kc">false</span>
+    <span class="p">},</span>
+    <span class="na">protocol</span><span class="p">:</span> <span class="s1">'udp'</span><span class="p">,</span>
+    <span class="na">protocolCode</span><span class="p">:</span> <span class="mi">17</span><span class="p">,</span>
+    <span class="na">offset</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="na">id</span><span class="p">:</span> <span class="mi">12345</span><span class="p">,</span>
+    <span class="na">length</span><span class="p">:</span> <span class="mi">20</span>
+  <span class="p">},</span>
+  <span class="na">udp</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">srcPort</span><span class="p">:</span> <span class="mi">5432</span><span class="p">,</span>
+    <span class="na">dstPort</span><span class="p">:</span> <span class="mi">52</span><span class="p">,</span>
+    <span class="na">dataLength</span><span class="p">:</span> <span class="mi">500</span><span class="p">,</span>
+    <span class="nx">length</span> <span class="mi">8</span>
+  <span class="p">}</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>This lets us inspect all of the extracted information at the end of the
+processing pipeline.</p>
+
+<p>This approach also lets different stream implementations work together.  For
+example, the <code class="highlighter-rouge">IpStream</code> can inspect the <code class="highlighter-rouge">msg.ether.type</code> property provided
+by <code class="highlighter-rouge">EtherStream</code> to see if <code class="highlighter-rouge">msg</code> represents an IP packet or not.</p>
+
+<p>This approach also allows streams to avoid stepping on each others toes.  Both
+the <code class="highlighter-rouge">EtherStream</code> and <code class="highlighter-rouge">IpStream</code> produce <code class="highlighter-rouge">src</code> properties, but they don’t
+conflict because they are namespaced under <code class="highlighter-rouge">ether</code> and <code class="highlighter-rouge">ip</code>.</p>
+
+<p>To help solicit feedback on this approach I started a <a href="https://gist.github.com/wanderview/5062495">gist</a> that outlines
+the approach.  If you’re interested or have an opinion please check it out.
+I’d love to know if there is a better, more standard way to build these sorts
+of object streams.</p>
+
+<p>Oh, and I did finally implement the <code class="highlighter-rouge">dgram</code> mock object.  See the
+<a href="https://github.com/wanderview/node-pcap-dgram#readme">pcap-dgram</a> module for examples.  Both it and <code class="highlighter-rouge">pcap-socket</code> are built on
+top of the new <a href="https://github.com/wanderview/node-ether-stream#readme">ether-stream</a> and <a href="https://github.com/wanderview/node-ip-stream#readme">ip-stream</a>.  And <code class="highlighter-rouge">ip-stream</code> does
+indeed now support <a href="https://github.com/wanderview/node-ip-stream/commit/8bfc084b3222116ce92c71c2897547ec47e341e7">fragmentation reassembly</a>.</p>
+
+<p>All of these composable object streams are implemented using a
+new base class module called <a href="https://github.com/wanderview/node-object-transform#readme">object-transform</a>.  It makes it fairly easy
+to write these kinds of transformations.</p>
+
+<p>Of course, this still leaves me with my first issue.  The <a href="http://nodejs.org/api/dgram.html">dgram</a> core
+module still does not provide a streams2 API.  If this message structure makes
+sense, however, it should now be possible to provide this API without losing
+the <code class="highlighter-rouge">rinfo</code> meta-data provided in the current <code class="highlighter-rouge">'message'</code> event.  UDP wouldn’t
+benefit from the back pressure improvements, but this would allow <code class="highlighter-rouge">dgram</code> to
+easily <code class="highlighter-rouge">pipe()</code> into other composable stream modules.</p>
+
+<p>Again, if you an opinion on if this is useful or how it can be improved, please
+comment on the <a href="https://gist.github.com/wanderview/5062495">gist</a> or send me a <a href="http://twitter.com/wanderview">tweet</a>.</p>
+
+<p>Thank you!</p>
+
+
+  </div><a class="u-url" href="/blog/2013/03/01/composable-object-streams.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">wanderview</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">wanderview</li><li><a class="u-email" href="mailto:ben@wanderview.com">ben@wanderview.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#github"></use></svg> <span class="username">wanderview</span></a></li><li><a href="https://toot.cafe/@wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#mastodon"></use></svg> <span class="username">wanderview</span></a></li><li><a href="/feed.xml"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#rss"></use></svg> <span>subscribe</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>My name is Ben Kelly.  I&#39;m a software engineer working on the DOM team at Mozilla.</p>
+      </div>
+    </div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>

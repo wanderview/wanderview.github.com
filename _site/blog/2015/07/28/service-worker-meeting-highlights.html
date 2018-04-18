@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.4.0 -->
+<title>Service Worker Meeting Highlights | wanderview</title>
+<meta name="generator" content="Jekyll v3.7.3" />
+<meta property="og:title" content="Service Worker Meeting Highlights" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Last week folks from Apple, Google, Microsoft, Mozilla, and Samsung met in San Francisco to talk about service workers. The focus was on addressing problems with the current spec and to discuss what new features should be added next." />
+<meta property="og:description" content="Last week folks from Apple, Google, Microsoft, Mozilla, and Samsung met in San Francisco to talk about service workers. The focus was on addressing problems with the current spec and to discuss what new features should be added next." />
+<link rel="canonical" href="http://localhost:4000/blog/2015/07/28/service-worker-meeting-highlights.html" />
+<meta property="og:url" content="http://localhost:4000/blog/2015/07/28/service-worker-meeting-highlights.html" />
+<meta property="og:site_name" content="wanderview" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2015-07-28T16:30:00-04:00" />
+<script type="application/ld+json">
+{"description":"Last week folks from Apple, Google, Microsoft, Mozilla, and Samsung met in San Francisco to talk about service workers. The focus was on addressing problems with the current spec and to discuss what new features should be added next.","@type":"BlogPosting","url":"http://localhost:4000/blog/2015/07/28/service-worker-meeting-highlights.html","headline":"Service Worker Meeting Highlights","dateModified":"2015-07-28T16:30:00-04:00","datePublished":"2015-07-28T16:30:00-04:00","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/blog/2015/07/28/service-worker-meeting-highlights.html"},"@context":"http://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="wanderview" /></head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">wanderview</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path fill="#424242" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+              <path fill="#424242" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484 h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+              <path fill="#424242" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/archive.html">Archive</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Service Worker Meeting Highlights</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2015-07-28T16:30:00-04:00" itemprop="datePublished">Jul 28, 2015
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p><img class="pull-right" src="/images/highlighter-small.jpg" /></p>
+
+<p>Last week folks from Apple, Google, Microsoft, Mozilla, and Samsung met in San Francisco
+to talk about service workers.  The focus was on addressing problems with the
+current spec and to discuss what new features should be added next.</p>
+
+<!-- more -->
+
+<p>The <a href="https://docs.google.com/document/d/1X5KvUxLjXS2kIWheYUzj6GOgwP2eGHj1cAuau-cn8sE/edit?usp=sharing">minutes</a> for the meeting are online.  We covered a lot of ground, though,
+and these notes are thirty pages long.  It seems many people will simply throw them
+in the “tl;dr” bucket and move on.</p>
+
+<p>The goal of this post is to try to distill the meeting into a few highlights that
+are a bit more readable and still reflect what we accomplished.</p>
+
+<p>The group came to agreement (more or less) on these items:</p>
+
+<ul>
+  <li><a href="#other-specs">Integrating Fetch Event with Other Specs</a></li>
+  <li><a href="#foreign-fetch">Fall-through or Foreign Fetch</a></li>
+  <li><a href="#no-fetch">No-fetch Optimization</a></li>
+  <li><a href="#updates">Coordinated Updates</a></li>
+  <li><a href="#max-age">Service-Worker-Max-Age Header</a></li>
+  <li><a href="#meetings">Meeting Planning</a></li>
+</ul>
+
+<p>This list mainly focuses on the decisions that came out of the top level agenda
+items.  There were many other discussions that did not resolve to any immediate
+decision.  In addition, a lot of good work was done addressing many of the open
+<a href="https://github.com/slightlyoff/ServiceWorker/issues?q=is%3Aopen+is%3Aissue+milestone%3A%22Version+1%22">v1 issues</a>.  Please see the <a href="https://docs.google.com/document/d/1X5KvUxLjXS2kIWheYUzj6GOgwP2eGHj1cAuau-cn8sE/edit?usp=sharing">minutes</a> if you want to delve into these
+topics.</p>
+
+<p><a name="other-specs"></a></p>
+<h2 id="integrating-fetch-event-with-other-specs">Integrating Fetch Event with Other Specs</h2>
+
+<p>The group decided to investigate and document how the fetch spec should be
+integrated into pre-existing specs.</p>
+
+<hr />
+
+<p>Currently service workers are defined in two specs:</p>
+
+<ul>
+  <li>The <a href="https://slightlyoff.github.io/ServiceWorker/spec/service_worker/index.html">service worker spec</a> defines how to register and message the worker
+objects.  It also defines the life cycle of service workers.</li>
+  <li>The <a href="https://fetch.spec.whatwg.org/">fetch spec</a> defines how network requests are performed.  At a particular
+point in these steps it calls out to the service worker spec to perform
+fetch event network interception.</li>
+</ul>
+
+<p>Unfortunately, the majority of the other pre-existing specs do not currently use
+the fetch spec to perform network requests.  Instead they use their own algorithm
+or no specific algorithm at all.</p>
+
+<p>This is a problem because many of the security checks in the fetch spec require
+that attributes are set properly on the request.  Each spec must set the
+appropriate Request context and mode.</p>
+
+<p>In addition, its unclear if certain specs should not intercept at all.  For
+example, it seems appcache requests should never produce service worker fetch
+events, but what about things like CSP violation reports?</p>
+
+<p>These questions are not currently answered by the available specs.</p>
+
+<p>At the meeting last week, however, Google’s <a href="https://twitter.com/FalkenMatto">Matt Falkenhagen</a> offered to help
+us at least determine what Chrome currently ships.  We plan to examine each
+network request call site to methodically determine the correct behavior and
+attributes.  We will then document the result in the fetch spec until it
+can be properly moved integrated into the other specs.</p>
+
+<p>This is great news for Mozilla because the potential security holes here
+are the main reason we chose <a href="/blog/2015/06/18/service-workers-will-not-ship-in-firefox-41/">not to ship in Firefox 41</a>.</p>
+
+<p><a name="foreign-fetch"></a></p>
+<h2 id="fall-through-or-foreign-fetch">Fall-through or Foreign Fetch</h2>
+
+<p>The group decided to pursue a fetch oriented design for communicating with
+cross-origin service workers.</p>
+
+<hr />
+
+<p>For a while now Google has been working on an addition to the spec to allow
+service workers for different origins to communicate with one another.  This
+would support use cases such as:</p>
+
+<ul>
+  <li>Offline analytics</li>
+  <li>Cloud storage APIs</li>
+  <li>Efficiently sharing fonts</li>
+</ul>
+
+<p>The solution was originally envisioned as an RPC-like API called
+<a href="https://github.com/mkruisselbrink/navigator-connect">navigator.connect()</a>.</p>
+
+<p>Over time, however, the effort migrated to a system based on FetchEvent.  The
+idea is to permit a service worker to intercept fetch events to its own origin.
+So, for example, Google could register a service worker that receives fetch
+events for analytics.js and instantly returns the script from the offline Cache.</p>
+
+<p>In general, we prefer this fetch event based system better for a number of
+reasons:</p>
+
+<ol>
+  <li>Its more “webby” using HTTP requests instead of RPC-like messags.</li>
+  <li>As a consequence its easy to provide offline support for REST APIs build on
+top of HTTP verbs like GET and POST.</li>
+  <li>Its progressive.  If a browser does not support this new system, then the
+requests simply go to the server as they used to.</li>
+</ol>
+
+<p>While there is general agreement with the direction, we still need to work out
+the details.  Google has proposed <a href="https://github.com/slightlyoff/ServiceWorker/issues/684">fall-through fetch</a>, while Mozilla has
+proposed <a href="https://wiki.whatwg.org/wiki/Foreign_Fetch">foreign fetch</a>.  They are very similar, however, and we don’t
+currently anticipate any difficult issues.</p>
+
+<p><a name="no-fetch"></a></p>
+<h2 id="no-fetch-optimization">No-fetch Optimization</h2>
+
+<p>The group decided to provide an API during the install event to explicitly
+<a href="https://github.com/slightlyoff/ServiceWorker/issues/718#issuecomment-123530545">opt-out of fetch events</a> for a particular service worker.</p>
+
+<hr />
+
+<p>Currently the registration API assumes that a service worker is going to be
+handling fetch events.  You must provide a scope to identify the service
+worker.  If a network request matches that scope, then you are going to get
+a fetch event.  If you don’t actually intend to handle the event, this adds
+needless delay to network requests.</p>
+
+<p>Many options were discussed, but the final solution we settled on is to
+provide <code class="highlighter-rouge">disableFetch()</code> and <code class="highlighter-rouge">enableFetch()</code> methods on the install event.</p>
+
+<p><a name="updates"></a></p>
+<h2 id="coordinated-updates">Coordinated Updates</h2>
+
+<p>The group decided that we need to support <a href="https://github.com/slightlyoff/ServiceWorker/issues/727">coordinated updates</a> for
+sites with multiple service workers.</p>
+
+<hr />
+
+<p>Currently its difficult to use multiple service workers for the same site.
+When you update their code, one will always update before the other one
+creating the potential for bugs.</p>
+
+<p>We need to spec an extension to the API to allow multiple service workers
+to update together coherently.</p>
+
+<p><a name="max-age"></a></p>
+<h2 id="service-worker-max-age-header">Service-Worker-Max-Age Header</h2>
+
+<p>The group decided to support the <a href="https://github.com/slightlyoff/ServiceWorker/issues/721">Service-Worker-Max-Age header</a>.</p>
+
+<hr />
+
+<p>Currently the update algorithm only examines the top level service worker
+script to determine if there is a new version.  Code within imported scripts
+is not examined.  This can make it awkward to trigger service worker updates
+when one of these dependent scripts has changed.</p>
+
+<p>The <a href="https://github.com/slightlyoff/ServiceWorker/issues/721">Service-Worker-Max-Age header</a> provides a way to opt-out of this
+behavior by setting a maximum time to run any single version of the service
+worker.</p>
+
+<p><a name="meetings"></a></p>
+<h2 id="meeting-planning">Meeting Planning</h2>
+
+<p>Finally, the group decided to have more frequent face-to-face meetings.  The
+next one will be held at <a href="http://www.w3.org/2015/10/TPAC/">TPAC</a> at the end of October.</p>
+
+<hr />
+
+<p><small><a href="https://www.flickr.com/photos/42931449@N07/5418401602">Highlighter image</a> courtesy of <a href="https://www.flickr.com/photos/42931449@N07/">photosteve101</a>.</small></p>
+
+
+  </div><a class="u-url" href="/blog/2015/07/28/service-worker-meeting-highlights.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">wanderview</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">wanderview</li><li><a class="u-email" href="mailto:ben@wanderview.com">ben@wanderview.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#github"></use></svg> <span class="username">wanderview</span></a></li><li><a href="https://toot.cafe/@wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#mastodon"></use></svg> <span class="username">wanderview</span></a></li><li><a href="/feed.xml"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#rss"></use></svg> <span>subscribe</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>My name is Ben Kelly.  I&#39;m a software engineer working on the DOM team at Mozilla.</p>
+      </div>
+    </div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>

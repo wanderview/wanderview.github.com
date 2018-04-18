@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.4.0 -->
+<title>Patching Resources in Service Workers | wanderview</title>
+<meta name="generator" content="Jekyll v3.7.3" />
+<meta property="og:title" content="Patching Resources in Service Workers" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="A proof-of-concept to reduce network traffic during service worker updates." />
+<meta property="og:description" content="A proof-of-concept to reduce network traffic during service worker updates." />
+<link rel="canonical" href="http://localhost:4000/blog/2015/10/13/patching-resources-in-service-workers.html" />
+<meta property="og:url" content="http://localhost:4000/blog/2015/10/13/patching-resources-in-service-workers.html" />
+<meta property="og:site_name" content="wanderview" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2015-10-13T10:30:00-04:00" />
+<script type="application/ld+json">
+{"description":"A proof-of-concept to reduce network traffic during service worker updates.","@type":"BlogPosting","url":"http://localhost:4000/blog/2015/10/13/patching-resources-in-service-workers.html","headline":"Patching Resources in Service Workers","dateModified":"2015-10-13T10:30:00-04:00","datePublished":"2015-10-13T10:30:00-04:00","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/blog/2015/10/13/patching-resources-in-service-workers.html"},"@context":"http://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="wanderview" /></head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">wanderview</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path fill="#424242" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+              <path fill="#424242" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484 h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+              <path fill="#424242" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/archive.html">Archive</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Patching Resources in Service Workers</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2015-10-13T10:30:00-04:00" itemprop="datePublished">Oct 13, 2015
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p>Consider a web site that uses a service worker to provide offline access.  It
+consists of numerous resources stored in a versioned Cache.</p>
+
+<p>What does this site need to do when its code changes?</p>
+
+<!-- more -->
+
+<p>It clearly needs to update its cache.  Thanks to the service worker life cycle,
+this is relatively straightforward.  As described in <a href="https://twitter.com/jaffathecake">Jake Archibald</a>’s
+<a href="https://jakearchibald.com/2014/offline-cookbook/#on-install-as-a-dependency">Offline Cookbook</a>, the site simply needs to <code class="highlighter-rouge">cache.addAll()</code> the new resource
+in the install event and <code class="highlighter-rouge">caches.delete()</code> the old Cache in the activate event:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>self.addEventListener('install', function(evt) {
+  evt.waitUntil(
+    caches.open('v2').then(function(cache) {
+      return cache.addAll(resourceList);
+    })
+  );
+});
+
+self.addEventListener('activate', function(evt) {
+  evt.waitUntil(caches.delete('v1'));
+});
+</code></pre></div></div>
+
+<p>This is nice and simple, but it does have one downside.  It requests the
+entire resource list from the browser’s network stack on each upgrade.</p>
+
+<p>This can be mitigated pretty easily For unchanged files.  Simply set the correct
+cache control headers on the server so you hit the HTTP cache.  Or even copy the
+resource directly from the old <code class="highlighter-rouge">v1</code> cache to the new <code class="highlighter-rouge">v2</code> cache.</p>
+
+<p>That being said, we normally only update when things change.  Is there anything
+we can do to improve the situation for modified resources?</p>
+
+<h2 id="can-we-do-better">Can we do better?</h2>
+
+<p>Consider this <a href="/delta-cache/">demo site</a> (<a href="https://github.com/wanderview/delta-cache">source code</a>).  Open it with your devtools network panel visible.
+It should work in both Firefox and Chrome release channels.  (There is an <a href="https://code.google.com/p/chromium/issues/detail?id=542668">issue</a>
+with Chrome on windows, though.)</p>
+
+<p><img class="center-block" src="/images/upgrades-initial.png" width="800" /></p>
+
+<p>The buttons let you simulate upgrading a cache as the service worker would.  Each
+version of the cache stores two resources; JQuery and Bootstrap.  The contents of
+each resource is shown in a separate div so you can inspect the final loaded
+resource.</p>
+
+<p>So, to model the typical upgrade process you would click:</p>
+
+<ul>
+  <li>Load v1 Resources</li>
+  <li>Clear All Resources</li>
+  <li>Load v2 Resources</li>
+  <li>Clear All REsources</li>
+  <li>Load v3 Resources</li>
+</ul>
+
+<p>This creates the following network traffic.</p>
+
+<p><img class="center-block" src="/images/upgrades-no-delta.png" width="800" /></p>
+
+<p>However, if you click the load buttons in sequence without clearing, then we
+can see an optimization at work.  So:</p>
+
+<ul>
+  <li>Load v1 Resources</li>
+  <li>Load v2 Resources</li>
+  <li>Load v3 Resources</li>
+</ul>
+
+<p>Which gives us:</p>
+
+<p><img class="center-block" src="/images/upgrades-with-delta.png" width="800" /></p>
+
+<p>In this case the v2 and v3 network traffic has been reduced by a factor of ten.</p>
+
+<h2 id="what-is-going-on-here">What is going on here?</h2>
+
+<p>The demo site is using an optimization called <a href="https://en.wikipedia.org/wiki/Delta_encoding">delta encoding</a> to request
+only the changes in each resource.  In this (admittedly contrived) case, both
+JQuery and Bootstrap are only being updated across minor versions, so the
+changes are quite small.</p>
+
+<p>While the demo is using relatively small updates, delta encoding is still
+useful for larger changes.  For example, sending the gzip’ed differences between
+JQuery 1.11.3 and 2.1.4 still only requires 8.6KB.</p>
+
+<p>Of course, delta encoding is not a new concept.  We use it every day with
+git and other tools.  It was even proposed as an HTTP standard in 2002 in
+<a href="https://tools.ietf.org/html/rfc3229">RFC 3229</a>.  It never caught on, however, because it requires extensive
+server resources to implement in a general way.  For example, see this
+article on the <a href="https://blog.cloudflare.com/efficiently-compressing-dynamically-generated-53805/">CloudFlare blog</a>.</p>
+
+<p>The nice thing about service workers is they let us implement this algorithm
+in a site-specific way that is tailored to our use case.  We determine where
+it makes sense to use delta encoding and skip it for resources where its
+not feasible.  This lets us use the optimization without dealing with the
+complications of making it general purpose across all web sites.</p>
+
+<h2 id="diffing-and-patching">Diff’ing and Patching</h2>
+
+<p>When I first considered delta encoding, I searched for a good diff/patch
+algorithm implemented in javascript.  At the time I didn’t find much that
+was suitable.  It seemed most libraries were either focused on creating
+traditional UNIX diff output or wrappers around native code.  I needed
+a patching algorithm solely implemented in javascript, however.</p>
+
+<p>In order for delta encoding to be useful the patching algorithm in the
+browser must be small.  We can’t just use emscripten to compile a C
+patch program, because the size of the resulting library would dwarf any
+advantage gained from the delta encoding.</p>
+
+<p>(It occurrs to me now that the projects like <a href="https://github.com/creationix/js-git">js-git</a> might have patching
+code I could have borrowed, but I didn’t think of it at the time.)</p>
+
+<p>In the end I adapted <a href="https://twitter.com/cperciva">Colin Percival</a>’s excellent set of <a href="http://www.daemonology.net/bsdiff/">bsdiff</a> tools.</p>
+
+<p>At first glance, bsdiff seemed like a good fit.  Its an extremely effective
+diffing tool that works well on both text and binary resources.  Whats more,
+bspatch is a single small C file that I could transcribe to javascript.</p>
+
+<p>Then I ran into bzip.  It turns out bsdiff works by creating file segments
+slightly larger than the original file, but with a large number of zeros
+for unchanged content.  It then internally uses bzip to compress these
+segments.  The result is a compact difference file.</p>
+
+<p>Porting bzip seemed like a daunting task and likely to require a large
+library.</p>
+
+<p>It occurred to me, however, the browser already knows how to decompress gzip
+natively.  Could we instead strip the internal bzip compression out and
+just serve the resulting files with gzip encoding?</p>
+
+<p>The answer is yes.  The demo site uses exactly this technique.</p>
+
+<p>In fact, if you look closely at the delta encoding network traffic, you will
+see devtools reports the resulting uncompressed file as being slightly
+larger than the original resource.  This is bsdiff’s internal segment
+algorithm at work.</p>
+
+<p>The u(ncompressed) bsdiff code is on github as <a href="https://github.com/wanderview/ubsdiff">ubsdiff</a>.  In addition, I’ve
+published <a href="https://www.npmjs.com/package/ubspatch">ubspatch</a> as a separate npm module.  Currently the ubsdiff
+code is only available in C, but it could also be ported to javascript.</p>
+
+<h2 id="should-i-use-this-in-production">Should I Use This in Production</h2>
+
+<p>Probably not with this specific code.  I wrote a lot of it while my kids were
+throwing legos at my head.</p>
+
+<p>The technique, however, seems suitable for service worker updates using
+the install event.  The install event runs in parallel with any currently
+active service worker, so you will not create problems for the current page.</p>
+
+<p>For read-through-caching, though, its less clear.  In these cases you
+will often need to patch the resource on-demand in a fetch event handler.
+This is problematic because the patching can take a non-trivial amount of time.
+Since its not streaming yet, it will just block the worker event loop while it
+runs.  If there are additional fetch events waiting to be serviced, this will
+cause network jank.</p>
+
+<p>Ideally, service workers would allow heavy workloads like patching to be
+offloaded via a worker.  The spec really needs to be extended to allow workers
+to be accessed within the service worker.</p>
+
+<p>(You could bounce a <code class="highlighter-rouge">postMessage()</code> through the fetch event source document to
+a worker that does the patching and then back, but that seems a bit convoluted
+to really recommend.)</p>
+
+<h2 id="frameworks-and-tools">Frameworks and Tools</h2>
+
+<p>Ultimately I think this technique probably needs client-side frameworks
+and server-side tooling to really shine.</p>
+
+<p>A framework could transparently handle a number of things:</p>
+
+<ul>
+  <li>Automatically include currently cached resource versions in outgoing requests.</li>
+  <li>Dynamically determine if using delta encoding makes sense for any given
+resource.</li>
+  <li>Automatically patch differences returned from the server.</li>
+  <li>Provide integrity checks on the final resource after patching.  This is a
+crucial step for any production system, but not something I included in the
+prototype here.</li>
+</ul>
+
+<h2 id="service-workers-are-delightful">Service Workers Are Delightful</h2>
+
+<p>At the end of the day, though, I find service workers exciting because
+they let web developers implement features that had previously been the
+sole domain of the browser.  The browsers are old, creaky, and have lots
+of constraints.  Web sites can break free of these constraints by using
+service workers.</p>
+
+
+  </div><a class="u-url" href="/blog/2015/10/13/patching-resources-in-service-workers.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">wanderview</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">wanderview</li><li><a class="u-email" href="mailto:ben@wanderview.com">ben@wanderview.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#github"></use></svg> <span class="username">wanderview</span></a></li><li><a href="https://toot.cafe/@wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#mastodon"></use></svg> <span class="username">wanderview</span></a></li><li><a href="/feed.xml"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#rss"></use></svg> <span>subscribe</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>My name is Ben Kelly.  I&#39;m a software engineer working on the DOM team at Mozilla.</p>
+      </div>
+    </div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>

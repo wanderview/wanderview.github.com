@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.4.0 -->
+<title>Working with NetBIOS in node.js | wanderview</title>
+<meta name="generator" content="Jekyll v3.7.3" />
+<meta property="og:title" content="Working with NetBIOS in node.js" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Lately I’ve been caught in the middle of a dispute between my Xerox scanner and Mac OS X. The Mac only wants to use modern versions of SMB to share files and is giving the scanner the cold shoulder. In an attempt to mediate this issue I’ve turned to hacking on ancient protocols in node.js." />
+<meta property="og:description" content="Lately I’ve been caught in the middle of a dispute between my Xerox scanner and Mac OS X. The Mac only wants to use modern versions of SMB to share files and is giving the scanner the cold shoulder. In an attempt to mediate this issue I’ve turned to hacking on ancient protocols in node.js." />
+<link rel="canonical" href="http://localhost:4000/blog/2013/01/20/working-with-netbios-in-node-dot-js.html" />
+<meta property="og:url" content="http://localhost:4000/blog/2013/01/20/working-with-netbios-in-node-dot-js.html" />
+<meta property="og:site_name" content="wanderview" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2013-01-20T21:29:00-05:00" />
+<script type="application/ld+json">
+{"description":"Lately I’ve been caught in the middle of a dispute between my Xerox scanner and Mac OS X. The Mac only wants to use modern versions of SMB to share files and is giving the scanner the cold shoulder. In an attempt to mediate this issue I’ve turned to hacking on ancient protocols in node.js.","@type":"BlogPosting","url":"http://localhost:4000/blog/2013/01/20/working-with-netbios-in-node-dot-js.html","headline":"Working with NetBIOS in node.js","dateModified":"2013-01-20T21:29:00-05:00","datePublished":"2013-01-20T21:29:00-05:00","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/blog/2013/01/20/working-with-netbios-in-node-dot-js.html"},"@context":"http://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="wanderview" /></head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">wanderview</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path fill="#424242" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+              <path fill="#424242" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484 h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+              <path fill="#424242" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/archive.html">Archive</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Working with NetBIOS in node.js</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2013-01-20T21:29:00-05:00" itemprop="datePublished">Jan 20, 2013
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p>Lately I’ve been caught in the middle of a <a href="/blog/2013/01/13/xerox-plus-apple-equals-equals-equals-node-dot-js/">dispute between my Xerox scanner and Mac OS X</a>.
+The Mac only wants to use modern versions of SMB to share
+files and is giving the scanner the cold shoulder.  In an attempt to mediate
+this issue I’ve turned to hacking on ancient protocols in <a href="http://nodejs.org">node.js</a>.</p>
+
+<p>So far I’ve tackled <a href="http://tools.ietf.org/rfc/rfc1001.txt">NetBIOS</a> and thought I would share some of the code
+I’ve come up with.</p>
+
+<!-- more -->
+
+<p>The first step to finding or advertising a NetBIOS name is to start up a
+<a href="http://www.github.com/wanderview/node-netbios-name-service#readme">netbios-name-service</a> instance.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">NBService</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'netbios-name-service'</span><span class="p">);</span>
+
+    <span class="kd">var</span> <span class="nx">nameService</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">NBService</span><span class="p">();</span>
+    <span class="nx">nameService</span><span class="p">.</span><span class="nx">start</span><span class="p">(</span><span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+      <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">'NetBIOS name service started'</span><span class="p">);</span>
+    <span class="p">});</span>
+</code></pre></div></div>
+
+<p>Then, if you want to search for a service, like say a printer, you can
+execute the following code.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">NBName</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'netbios-name'</span><span class="p">);</span>
+
+    <span class="kd">var</span> <span class="nx">queryName</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">NBName</span><span class="p">({</span><span class="na">name</span><span class="p">:</span> <span class="s1">'PRINTER'</span><span class="p">});</span>
+    <span class="nx">nameService</span><span class="p">.</span><span class="nx">find</span><span class="p">(</span><span class="nx">queryName</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">error</span><span class="p">,</span> <span class="nx">address</span><span class="p">)</span> <span class="p">{</span>
+      <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">'Found NetBIOS name ['</span> <span class="o">+</span> <span class="nx">queryName</span> <span class="o">+</span> <span class="s1">'] at ['</span> <span class="o">+</span> <span class="nx">address</span> <span class="o">+</span> <span class="s1">']'</span><span class="p">);</span>
+    <span class="p">});</span>
+</code></pre></div></div>
+
+<p>Note, you must use the <a href="http://www.github.com/wanderview/node-netbios-name#readme">netbios-name</a> module in order to properly define
+names in order to search, advertise, or perform other operations.  This module
+provides a simple class that combines the simple NetBIOS name with additional
+information such as the scope ID (aka domain name) and a suffix byte indicating
+the what type of node is being represented.</p>
+
+<p>For the problem at hand, however, I don’t need to search for a name. Instead
+I want to advertise the node.js server via NetBIOS so that the scanner can
+push files to us.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">myName</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">NBName</span><span class="p">({</span><span class="na">name</span><span class="p">:</span> <span class="s1">'XYKON-2'</span><span class="p">});</span>
+    <span class="nx">nameService</span><span class="p">.</span><span class="nx">add</span><span class="p">({</span><span class="na">nbname</span><span class="p">:</span> <span class="nx">myName</span><span class="p">});</span>
+</code></pre></div></div>
+
+<p>This causes the service to monitor UDP port 137 for broadcast queries looking
+for the name <code class="highlighter-rouge">XYKON-2</code>.  If a query occurs, then the service will automatically
+respond with the IP address of the server.</p>
+
+<p>So this allows the scanner to find our server, but what about handling the
+NetBIOS traffic containing the actual file operations?</p>
+
+<p>To deal with this part of the problem we need to use the <a href="http://www.github.com/wanderview/node-netbios-session#readme">netbios-session</a>
+module.  Here is code to receive incoming NetBIOS sessions.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">net</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'net'</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">NBSession</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'netbios-session'</span><span class="p">);</span>
+
+    <span class="kd">var</span> <span class="nx">server</span> <span class="o">=</span> <span class="nx">net</span><span class="p">.</span><span class="nx">createServer</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">socket</span><span class="p">)</span> <span class="p">{</span>
+      <span class="kd">var</span> <span class="nx">sessionIn</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">NBSession</span><span class="p">({</span><span class="na">autoAccept</span><span class="p">:</span> <span class="kc">true</span><span class="p">});</span>
+
+      <span class="nx">sessionIn</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'message'</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">msg</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">'NetBIOS session message with ['</span> <span class="o">+</span> <span class="nx">msg</span><span class="p">.</span><span class="nx">length</span> <span class="o">+</span> <span class="s1">'] bytes'</span><span class="p">);</span>
+      <span class="p">});</span>
+
+      <span class="nx">sessionIn</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'connect'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+        <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">'New NetBIOS session from ['</span> <span class="nx">socket</span><span class="p">.</span><span class="nx">remoteAddress</span> <span class="o">+</span> <span class="s1">']'</span><span class="p">);</span>
+      <span class="p">});</span>
+
+      <span class="nx">sessionIn</span><span class="p">.</span><span class="nx">attach</span><span class="p">(</span><span class="nx">socket</span><span class="p">);</span>
+    <span class="p">});</span>
+
+    <span class="nx">server</span><span class="p">.</span><span class="nx">listen</span><span class="p">(</span><span class="mi">139</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>The <a href="http://www.github.com/wanderview/node-netbios-session#readme">netbios-session</a> class is essentially a wrapper around a TCP socket.
+After calling <code class="highlighter-rouge">new</code> to create a new instance, you need to call <code class="highlighter-rouge">connect()</code>
+or, in this case, <code class="highlighter-rouge">attach()</code>.  Here we are using <code class="highlighter-rouge">attach()</code> to associate the
+session with a new TCP socket.</p>
+
+<p>Once the session is ready to send and receive data it will emit the <code class="highlighter-rouge">'connect'</code>
+event.  At this point <code class="highlighter-rouge">'message'</code> events will occur whenever a message is
+received from the remote peer.  Messages can be sent using the <code class="highlighter-rouge">write()</code>
+method.</p>
+
+<p>So, now that we are receiving data from the scanner, we need to forward this
+on to my Mac’s SMB service listening on port 445.</p>
+
+<p>Now, it turns out, direct SMB connections to port 445 actually use the NetBIOS
+session header to implement message framing, but it skips all of the initial
+session negotiation that normally occurs.</p>
+
+<p>So, to achieve our forwarding we want to create a second session to port
+445 using the <code class="highlighter-rouge">'direct'</code> constructor option.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">sessionOut</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">Session</span><span class="p">({</span><span class="na">direct</span><span class="p">:</span> <span class="kc">true</span><span class="p">});</span>
+    <span class="nx">sessionOut</span><span class="p">.</span><span class="nx">connect</span><span class="p">(</span><span class="mi">445</span><span class="p">,</span> <span class="s1">'127.0.0.1'</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>After this, we can take messages we receive from <code class="highlighter-rouge">sessionIn</code> events and pass
+them straight to <code class="highlighter-rouge">'sessionOut.write()'</code>.  Since SMB is bidirectional, we also
+need to pass messages in the reverse direction.  With a bit of back-pressure
+logic sprinkled in, this code looks like the following:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="nx">sessionIn</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'message'</span><span class="p">,</span> <span class="nx">_forward</span><span class="p">.</span><span class="nx">bind</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span> <span class="nx">sessionOut</span><span class="p">,</span> <span class="nx">sessionIn</span><span class="p">));</span>
+    <span class="nx">sessionOut</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'message'</span><span class="p">,</span> <span class="nx">_forward</span><span class="p">.</span><span class="nx">bind</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span> <span class="nx">sessionIn</span><span class="p">,</span> <span class="nx">sessionOut</span><span class="p">));</span>
+
+    <span class="kd">function</span> <span class="nx">_forward</span><span class="p">(</span><span class="nx">dst</span><span class="p">,</span> <span class="nx">src</span><span class="p">,</span> <span class="nx">msg</span><span class="p">)</span> <span class="p">{</span>
+      <span class="kd">var</span> <span class="nx">flushed</span> <span class="o">=</span> <span class="nx">dst</span><span class="p">.</span><span class="nx">write</span><span class="p">(</span><span class="nx">msg</span><span class="p">);</span>
+      <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">flushed</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">src</span><span class="p">.</span><span class="nx">pause</span><span class="p">();</span>
+        <span class="nx">dst</span><span class="p">.</span><span class="nx">once</span><span class="p">(</span><span class="s1">'drain'</span><span class="p">,</span> <span class="nx">src</span><span class="p">.</span><span class="nx">resume</span><span class="p">.</span><span class="nx">bind</span><span class="p">(</span><span class="nx">src</span><span class="p">));</span>
+      <span class="p">}</span>
+    <span class="p">}</span>
+</code></pre></div></div>
+
+<p>Putting all the pieces together we end up with the following.</p>
+
+<p>``` javascript netbios-fwd.js http://www.github.com/wanderview/fileshift/blob/master/netbios-fwd.js Source File
+‘use strict’;</p>
+
+<p>var NBService = require(‘netbios-name-service’);
+var NBSession = require(‘netbios-session’);
+var NBName = require(‘netbios-name’);
+var net = require(‘net’);</p>
+
+<p>var NAME = ‘XYKON-2’;
+var SCOPE_ID = ‘example.com’;
+var FWD_PORT = 445;
+var FWD_HOST = ‘127.0.0.1’;</p>
+
+<p>var server = net.createServer(function(socket) {
+  var sessionIn = new NBSession({paused: true, autoAccept: true});</p>
+
+<p>sessionIn.on(‘connect’, function() {
+    var sessionOut = new NBSession({direct: true});</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>var endHandler = function() {
+  sessionIn.end();
+  sessionOut.end();
+};
+var errorHandler = function(error) {
+  console.log(error);
+  endHandler();
+};
+
+sessionIn.on('end', endHandler);
+sessionOut.on('end', endHandler);
+
+sessionIn.on('error', errorHandler);
+sessionOut.on('error', errorHandler);
+
+sessionIn.on('message', _forward.bind(null, sessionOut, sessionIn));
+sessionOut.on('message', _forward.bind(null, sessionIn, sessionOut));
+
+sessionOut.on('connect', sessionIn.resume.bind(sessionIn));
+
+sessionOut.connect(FWD_PORT, FWD_HOST);   });
+</code></pre></div></div>
+
+<p>sessionIn.attach(socket);
+});</p>
+
+<p>function _forward(dst, src, msg) {
+  var flushed = dst.write(msg);
+  if (!flushed) {
+    src.pause();
+    dst.once(‘drain’, src.resume.bind(src));
+  }
+}</p>
+
+<p>server.listen(139);</p>
+
+<p>var nameService = new NBService();
+nameService.start(function() {
+  var myName = new NBName({name: NAME, scopeId: SCOPE_ID, suffix: 0x20});
+  nameService.add({nbname: myName});
+});</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+We now have a fully functional proxy server for connecting devices that only
+speak NetBIOS up to modern, direct SMB servers.
+
+Of course, this assumes that the underlying SMB protocol is compatible
+with the destination.  It turns out, the new Mac OS X SMB server has some
+[additional restrictions][].  While I can connect through the proxy using
+`net use` on Windows XP, my scanner still fails to connect.
+
+Looking in the log I found this:
+
+``` bash
+    smbd[91973]: 127.0.0.1 SMB client not supported - Unicode strings are required
+</code></pre></div></div>
+
+<p>Unfortunately this implementation is not even a temporary work around
+for my problem since the scanner doesn’t know how to talk Unicode.</p>
+
+<p>So, it looks like I will be diving into the SMB protocol next so that I can
+intercept the file operations directly in node.</p>
+
+<hr />
+
+<p>All the modules used in this post are available on GitHub and npm:</p>
+
+<ul>
+  <li><a href="http://www.github.com/wanderview/node-netbios-name#readme">netbios-name</a></li>
+  <li><a href="http://www.github.com/wanderview/node-netbios-name-service#readme">netbios-name-service</a></li>
+  <li><a href="http://www.github.com/wanderview/node-netbios-session#readme">netbios-session</a></li>
+</ul>
+
+<p>The end script is available on Github in the <a href="http://www.github.com/wanderview/fileshift">FileShift</a> project.</p>
+
+
+  </div><a class="u-url" href="/blog/2013/01/20/working-with-netbios-in-node-dot-js.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">wanderview</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">wanderview</li><li><a class="u-email" href="mailto:ben@wanderview.com">ben@wanderview.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#github"></use></svg> <span class="username">wanderview</span></a></li><li><a href="https://toot.cafe/@wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#mastodon"></use></svg> <span class="username">wanderview</span></a></li><li><a href="/feed.xml"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#rss"></use></svg> <span>subscribe</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>My name is Ben Kelly.  I&#39;m a software engineer working on the DOM team at Mozilla.</p>
+      </div>
+    </div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>

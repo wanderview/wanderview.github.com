@@ -1,0 +1,2882 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[wanderview]]></title>
+  <link href="http://localhost:4000/atom.xml" rel="self"/>
+  <link href="http://localhost:4000/"/>
+  <updated>2018-04-16T23:15:02-04:00</updated>
+  <id>http://localhost:4000/</id>
+  <author>
+    <name><![CDATA[]]></name>
+    <email><![CDATA[ben@wanderview.com]]></email>
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Firefox 52 setTimeout() Changes]]></title>
+    <link href="http://localhost:4000/blog/2017/03/13/firefox-52-settimeout-changes.html"/>
+    <updated>2017-03-13T09:30:00-04:00</updated>
+    <id>http://localhost:4000/blog/2017/03/13/firefox-52-settimeout-changes</id>
+    <content type="html"><![CDATA[<p>Firefox 52 hit the release channel last week and it includes a few <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1300659">changes to
+<code class="highlighter-rouge">setTimeout()</code> and <code class="highlighter-rouge">setInterval()</code></a>.  In particular, we have changed how we
+schedule and execute timer callbacks in order to reduce the possibility of
+jank.</p>
+
+<!-- more -->
+
+<p>To start, consider the following simple demo site (you may not want to run
+it yourself):</p>
+
+<p><a href="https://people-mozilla.org/~bkelly/timer-flood/index.html">Demo Site</a></p>
+
+<p>When you click the “Start” button the site will begin flooding the browser
+with <code class="highlighter-rouge">setTimeout()</code> calls.  Each callback will call <code class="highlighter-rouge">setTimeout()</code> twice.
+This results in an exponential explosion of timers.  Clicking “Stop” will
+cause the timers to stop calling <code class="highlighter-rouge">setTimeout()</code>.</p>
+
+<p>The animated GIF is there so that you can visually see if any jank occurs.
+(This is a great technique I am stealing from <a href="https://twitter.com/nolanlawson">Nolan Lawson</a>’s <a href="https://nolanlawson.com/2015/09/29/indexeddb-websql-localstorage-what-blocks-the-dom/">IDB
+performance post</a>).</p>
+
+<p>Traditionally, browsers will begin dropping frames when this sort of thing
+happens and the GIF will stop animating.  For example, this video shows
+Firefox 45 ESR running the demo:</p>
+
+<video src="/videos/timer-flood-45esr.mp4" controls="" width="80%" class="center-block"></video>
+
+<p>In Firefox 52, however, we have made changes which allows the browser to
+mostly survive this use case.  This video shows that, while there is a
+brief pause, the animated GIF continues to play fairly smoothly in spite
+of the timer flood.</p>
+
+<video src="/videos/timer-flood-52.mp4" controls="" width="80%" class="center-block"></video>
+
+<h2 id="how-does-it-work">How Does It Work?</h2>
+
+<p>Firefox achieves this by implementing <strong>yielding</strong> between timer callbacks.
+After a timer callback is executed we allow any other non-timer event pending
+in the queue to complete before running the next timer callback.</p>
+
+<p>For example, consider the case where we have a number of timer callbacks that
+want to run at the same time as a vsync refresh.  Its a bit of a race which
+events will get to run first.  The refresh, however, is often considered more
+important because if it’s delayed then the site’s frame-per-second will drop.</p>
+
+<p>With this in mind, consider the “best” case and “worst” case for scheduling
+the events:</p>
+
+<p><img src="/images/event-queue-flood.svg" width="100%" class="center-block" /></p>
+
+<p>In the best case the refresh runs first and is not delayed.  In the worst
+case the refresh is delayed until all the timer callbacks have executed.  In
+extreme cases, like the demo above, this delay can be quite long.</p>
+
+<p>Yielding between timer callbacks changes the situation so that the worst case
+looks like this instead:</p>
+
+<p><img src="/images/event-queue-yielding-effect.svg" width="100%" class="center-block" /></p>
+
+<p>Now, the refresh will be delayed by at most one timer callback.</p>
+
+<p>In reality we don’t actually re-arrange events in the event queue.  Perhaps
+a better way to think of it is that timers are stored in a separate queue.
+Only a single timer is allowed to be scheduled on the main event queue at
+any time.</p>
+
+<p><img src="/images/event-queue-yielding-timer-queue.svg" width="100%" class="center-block" /></p>
+
+<p>So after “callback 1” completes here “callback 2” will be placed on the
+main event queue at the end.  This allows the refresh event to execute next.</p>
+
+<h2 id="is-this-throttling">Is This Throttling?</h2>
+
+<p>No.  Typically “timer throttling” means introducing some amount of delay
+into each timer.  For example, if you call <code class="highlighter-rouge">setTimeout(func, 5)</code> in a
+background tab most browsers will delay the timer callback for at least
+one second.</p>
+
+<p>Yielding is different in that it allows timers to run at <strong>full speed</strong> if
+the main thread is idle.  Yielding only causes timers to be delayed if the
+main thread is busy.  (Of course, if the main thread is busy then timers
+have always run the risk of being delayed.)</p>
+
+<p>That being said, if we detect that the timer queue is backing up we do
+begin throttling timers.  This backpressure helps avoid exhausting memory
+when a script is generating more <code class="highlighter-rouge">setTimeout()</code> calls than can be executed.
+This back pressure is tuned to only trigger in extreme cases and most sites
+should not experience it.</p>
+
+<h2 id="is-this-prioritization">Is This Prioritization?</h2>
+
+<p>Again, no.  Timer yielding is not quite the same as using a priority queue
+and marking timer callbacks low priority.  In a strict prioritization scheme
+it would be possible for low priority events to never run.  That is not the
+case here.</p>
+
+<p>In our timer yielding approach the next timer callback is run at the same
+priority as all other events.  It may execute before other work.  It is
+also guaranteed to be executed at some point.</p>
+
+<h2 id="whats-the-catch">What’s The Catch?</h2>
+
+<p>While our general approach is to yield between timers, our end solution
+doesn’t actually do that.  We actually allow a limited number of timer
+callbacks to run without yielding.  We do this to mitigate impact to
+sites that use timers while saturating the main thread.</p>
+
+<p>For example, consider a site that is:</p>
+
+<ol>
+  <li>Running an animation through a large number of timer callbacks.</li>
+  <li>The animation is saturating the main thread with painting.</li>
+</ol>
+
+<p>In this case the timer callbacks will be throttled by the rate at which
+the paints can happen.  When the browser cannot execute the paints at
+60 FPS, then you will get at most one timer callback between each refresh
+driver event.</p>
+
+<p><img src="/images/event-queue-expensive-paint.svg" width="100%" class="center-block" /></p>
+
+<p>This is not a problem for “closed loop” animations where you measure how long
+things are taking to run and adjust your changes to match.  It can, however,
+dramatically increase the overall animation time for “open loop” animations.</p>
+
+<p>For example, consider this animation demonstration site:</p>
+
+<p><a href="https://mozdevs.github.io/servo-experiments/experiments/tiles/">“Open Loop” Animation Demo</a></p>
+
+<p>Here the site pre-computes all the animation steps and schedules a separate
+<code class="highlighter-rouge">setTimeout()</code> for each one.  Each timer callback simply modifies the DOM
+for its step without measuring to see if the animation is behind.</p>
+
+<p>This demo site will cause pretty much every modern browser to drop to zero
+frames-per-second.  The total animation, however, will run quite quickly.</p>
+
+<video src="/videos/open-loop-animation-45.mp4" controls="" width="80%" class="center-block"></video>
+
+<p>In Firefox 52, however, we end up delaying many of the timers due
+to our yielding.  This keeps the browser running at 30fps, but the animation
+takes much longer to complete:</p>
+
+<video src="/videos/open-loop-animation-52.mp4" controls="" width="80%" class="center-block"></video>
+
+<p>This is an extreme case that we don’t think reflects the typical behavior on
+most sites.  There are many ways to implement this animation without scheduling
+hundreds or thousands of simultaneous timers.  Its very likely that sites are
+using these alternate methods to avoid triggering the poor FPS performance caused
+by this technique.</p>
+
+<p>That being said, we still want to avoid breaking existing sites if we can.  This
+is why we are not enforcing a strict yield after every timer callback.  We hope
+that by allowing a few timer callbacks to run without yielding we can mitigate
+the impact to these kinds of workloads while still improving performance on
+sites in general.</p>
+
+<h2 id="whats-next">What’s Next?</h2>
+
+<p>These <code class="highlighter-rouge">setTimeout()</code> changes have just hit our release channel with Firefox 52.
+We will be on the look-out for any compatibility problems in the wild.  So
+far we have only had a <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1342854">single bug report</a> in the four months since this
+landed in nightly.</p>
+
+<p>If you believe you have a problem on your site in Firefox due to these changes
+please <a href="https://bugzilla.mozilla.org/enter_bug.cgi?format=guided#h=dupes|Core|DOM">file a bug</a> and <a href="https://bugzilla.mozilla.org/user_profile?login=bkelly%40mozilla.com">add me to the CC list</a>.</p>
+
+<p>Barring large-scale problems we plan to continue refining this approach.  We will
+likely change our limit on “timers allowed before yielding” to use a
+time budget approach instead of a fixed number.  In addition, the <a href="https://billmccloskey.wordpress.com/2016/10/27/mozillas-quantum-project/">Quantum DOM</a>
+project will be experimenting with more changes to event queue scheduling in
+general.</p>
+
+<h2 id="update-3302018">Update (3/30/2018)</h2>
+
+<p>NOTE: We implemented a time budget approach to yielding in <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1343912">Firefox 55</a>.  By
+default Firefox will now execute consecutive timers for up to 4ms before forcing
+a yield.</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Patching Resources in Service Workers]]></title>
+    <link href="http://localhost:4000/blog/2015/10/13/patching-resources-in-service-workers.html"/>
+    <updated>2015-10-13T10:30:00-04:00</updated>
+    <id>http://localhost:4000/blog/2015/10/13/patching-resources-in-service-workers</id>
+    <content type="html"><![CDATA[<p>Consider a web site that uses a service worker to provide offline access.  It
+consists of numerous resources stored in a versioned Cache.</p>
+
+<p>What does this site need to do when its code changes?</p>
+
+<!-- more -->
+
+<p>It clearly needs to update its cache.  Thanks to the service worker life cycle,
+this is relatively straightforward.  As described in <a href="https://twitter.com/jaffathecake">Jake Archibald</a>’s
+<a href="https://jakearchibald.com/2014/offline-cookbook/#on-install-as-a-dependency">Offline Cookbook</a>, the site simply needs to <code class="highlighter-rouge">cache.addAll()</code> the new resource
+in the install event and <code class="highlighter-rouge">caches.delete()</code> the old Cache in the activate event:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>self.addEventListener('install', function(evt) {
+  evt.waitUntil(
+    caches.open('v2').then(function(cache) {
+      return cache.addAll(resourceList);
+    })
+  );
+});
+
+self.addEventListener('activate', function(evt) {
+  evt.waitUntil(caches.delete('v1'));
+});
+</code></pre></div></div>
+
+<p>This is nice and simple, but it does have one downside.  It requests the
+entire resource list from the browser’s network stack on each upgrade.</p>
+
+<p>This can be mitigated pretty easily For unchanged files.  Simply set the correct
+cache control headers on the server so you hit the HTTP cache.  Or even copy the
+resource directly from the old <code class="highlighter-rouge">v1</code> cache to the new <code class="highlighter-rouge">v2</code> cache.</p>
+
+<p>That being said, we normally only update when things change.  Is there anything
+we can do to improve the situation for modified resources?</p>
+
+<h2 id="can-we-do-better">Can we do better?</h2>
+
+<p>Consider this <a href="/delta-cache/">demo site</a> (<a href="https://github.com/wanderview/delta-cache">source code</a>).  Open it with your devtools network panel visible.
+It should work in both Firefox and Chrome release channels.  (There is an <a href="https://code.google.com/p/chromium/issues/detail?id=542668">issue</a>
+with Chrome on windows, though.)</p>
+
+<p><img class="center-block" src="/images/upgrades-initial.png" width="800" /></p>
+
+<p>The buttons let you simulate upgrading a cache as the service worker would.  Each
+version of the cache stores two resources; JQuery and Bootstrap.  The contents of
+each resource is shown in a separate div so you can inspect the final loaded
+resource.</p>
+
+<p>So, to model the typical upgrade process you would click:</p>
+
+<ul>
+  <li>Load v1 Resources</li>
+  <li>Clear All Resources</li>
+  <li>Load v2 Resources</li>
+  <li>Clear All REsources</li>
+  <li>Load v3 Resources</li>
+</ul>
+
+<p>This creates the following network traffic.</p>
+
+<p><img class="center-block" src="/images/upgrades-no-delta.png" width="800" /></p>
+
+<p>However, if you click the load buttons in sequence without clearing, then we
+can see an optimization at work.  So:</p>
+
+<ul>
+  <li>Load v1 Resources</li>
+  <li>Load v2 Resources</li>
+  <li>Load v3 Resources</li>
+</ul>
+
+<p>Which gives us:</p>
+
+<p><img class="center-block" src="/images/upgrades-with-delta.png" width="800" /></p>
+
+<p>In this case the v2 and v3 network traffic has been reduced by a factor of ten.</p>
+
+<h2 id="what-is-going-on-here">What is going on here?</h2>
+
+<p>The demo site is using an optimization called <a href="https://en.wikipedia.org/wiki/Delta_encoding">delta encoding</a> to request
+only the changes in each resource.  In this (admittedly contrived) case, both
+JQuery and Bootstrap are only being updated across minor versions, so the
+changes are quite small.</p>
+
+<p>While the demo is using relatively small updates, delta encoding is still
+useful for larger changes.  For example, sending the gzip’ed differences between
+JQuery 1.11.3 and 2.1.4 still only requires 8.6KB.</p>
+
+<p>Of course, delta encoding is not a new concept.  We use it every day with
+git and other tools.  It was even proposed as an HTTP standard in 2002 in
+<a href="https://tools.ietf.org/html/rfc3229">RFC 3229</a>.  It never caught on, however, because it requires extensive
+server resources to implement in a general way.  For example, see this
+article on the <a href="https://blog.cloudflare.com/efficiently-compressing-dynamically-generated-53805/">CloudFlare blog</a>.</p>
+
+<p>The nice thing about service workers is they let us implement this algorithm
+in a site-specific way that is tailored to our use case.  We determine where
+it makes sense to use delta encoding and skip it for resources where its
+not feasible.  This lets us use the optimization without dealing with the
+complications of making it general purpose across all web sites.</p>
+
+<h2 id="diffing-and-patching">Diff’ing and Patching</h2>
+
+<p>When I first considered delta encoding, I searched for a good diff/patch
+algorithm implemented in javascript.  At the time I didn’t find much that
+was suitable.  It seemed most libraries were either focused on creating
+traditional UNIX diff output or wrappers around native code.  I needed
+a patching algorithm solely implemented in javascript, however.</p>
+
+<p>In order for delta encoding to be useful the patching algorithm in the
+browser must be small.  We can’t just use emscripten to compile a C
+patch program, because the size of the resulting library would dwarf any
+advantage gained from the delta encoding.</p>
+
+<p>(It occurrs to me now that the projects like <a href="https://github.com/creationix/js-git">js-git</a> might have patching
+code I could have borrowed, but I didn’t think of it at the time.)</p>
+
+<p>In the end I adapted <a href="https://twitter.com/cperciva">Colin Percival</a>’s excellent set of <a href="http://www.daemonology.net/bsdiff/">bsdiff</a> tools.</p>
+
+<p>At first glance, bsdiff seemed like a good fit.  Its an extremely effective
+diffing tool that works well on both text and binary resources.  Whats more,
+bspatch is a single small C file that I could transcribe to javascript.</p>
+
+<p>Then I ran into bzip.  It turns out bsdiff works by creating file segments
+slightly larger than the original file, but with a large number of zeros
+for unchanged content.  It then internally uses bzip to compress these
+segments.  The result is a compact difference file.</p>
+
+<p>Porting bzip seemed like a daunting task and likely to require a large
+library.</p>
+
+<p>It occurred to me, however, the browser already knows how to decompress gzip
+natively.  Could we instead strip the internal bzip compression out and
+just serve the resulting files with gzip encoding?</p>
+
+<p>The answer is yes.  The demo site uses exactly this technique.</p>
+
+<p>In fact, if you look closely at the delta encoding network traffic, you will
+see devtools reports the resulting uncompressed file as being slightly
+larger than the original resource.  This is bsdiff’s internal segment
+algorithm at work.</p>
+
+<p>The u(ncompressed) bsdiff code is on github as <a href="https://github.com/wanderview/ubsdiff">ubsdiff</a>.  In addition, I’ve
+published <a href="https://www.npmjs.com/package/ubspatch">ubspatch</a> as a separate npm module.  Currently the ubsdiff
+code is only available in C, but it could also be ported to javascript.</p>
+
+<h2 id="should-i-use-this-in-production">Should I Use This in Production</h2>
+
+<p>Probably not with this specific code.  I wrote a lot of it while my kids were
+throwing legos at my head.</p>
+
+<p>The technique, however, seems suitable for service worker updates using
+the install event.  The install event runs in parallel with any currently
+active service worker, so you will not create problems for the current page.</p>
+
+<p>For read-through-caching, though, its less clear.  In these cases you
+will often need to patch the resource on-demand in a fetch event handler.
+This is problematic because the patching can take a non-trivial amount of time.
+Since its not streaming yet, it will just block the worker event loop while it
+runs.  If there are additional fetch events waiting to be serviced, this will
+cause network jank.</p>
+
+<p>Ideally, service workers would allow heavy workloads like patching to be
+offloaded via a worker.  The spec really needs to be extended to allow workers
+to be accessed within the service worker.</p>
+
+<p>(You could bounce a <code class="highlighter-rouge">postMessage()</code> through the fetch event source document to
+a worker that does the patching and then back, but that seems a bit convoluted
+to really recommend.)</p>
+
+<h2 id="frameworks-and-tools">Frameworks and Tools</h2>
+
+<p>Ultimately I think this technique probably needs client-side frameworks
+and server-side tooling to really shine.</p>
+
+<p>A framework could transparently handle a number of things:</p>
+
+<ul>
+  <li>Automatically include currently cached resource versions in outgoing requests.</li>
+  <li>Dynamically determine if using delta encoding makes sense for any given
+resource.</li>
+  <li>Automatically patch differences returned from the server.</li>
+  <li>Provide integrity checks on the final resource after patching.  This is a
+crucial step for any production system, but not something I included in the
+prototype here.</li>
+</ul>
+
+<h2 id="service-workers-are-delightful">Service Workers Are Delightful</h2>
+
+<p>At the end of the day, though, I find service workers exciting because
+they let web developers implement features that had previously been the
+sole domain of the browser.  The browsers are old, creaky, and have lots
+of constraints.  Web sites can break free of these constraints by using
+service workers.</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Service Worker Meeting Highlights]]></title>
+    <link href="http://localhost:4000/blog/2015/07/28/service-worker-meeting-highlights.html"/>
+    <updated>2015-07-28T16:30:00-04:00</updated>
+    <id>http://localhost:4000/blog/2015/07/28/service-worker-meeting-highlights</id>
+    <content type="html"><![CDATA[<p><img class="pull-right" src="/images/highlighter-small.jpg" /></p>
+
+<p>Last week folks from Apple, Google, Microsoft, Mozilla, and Samsung met in San Francisco
+to talk about service workers.  The focus was on addressing problems with the
+current spec and to discuss what new features should be added next.</p>
+
+<!-- more -->
+
+<p>The <a href="https://docs.google.com/document/d/1X5KvUxLjXS2kIWheYUzj6GOgwP2eGHj1cAuau-cn8sE/edit?usp=sharing">minutes</a> for the meeting are online.  We covered a lot of ground, though,
+and these notes are thirty pages long.  It seems many people will simply throw them
+in the “tl;dr” bucket and move on.</p>
+
+<p>The goal of this post is to try to distill the meeting into a few highlights that
+are a bit more readable and still reflect what we accomplished.</p>
+
+<p>The group came to agreement (more or less) on these items:</p>
+
+<ul>
+  <li><a href="#other-specs">Integrating Fetch Event with Other Specs</a></li>
+  <li><a href="#foreign-fetch">Fall-through or Foreign Fetch</a></li>
+  <li><a href="#no-fetch">No-fetch Optimization</a></li>
+  <li><a href="#updates">Coordinated Updates</a></li>
+  <li><a href="#max-age">Service-Worker-Max-Age Header</a></li>
+  <li><a href="#meetings">Meeting Planning</a></li>
+</ul>
+
+<p>This list mainly focuses on the decisions that came out of the top level agenda
+items.  There were many other discussions that did not resolve to any immediate
+decision.  In addition, a lot of good work was done addressing many of the open
+<a href="https://github.com/slightlyoff/ServiceWorker/issues?q=is%3Aopen+is%3Aissue+milestone%3A%22Version+1%22">v1 issues</a>.  Please see the <a href="https://docs.google.com/document/d/1X5KvUxLjXS2kIWheYUzj6GOgwP2eGHj1cAuau-cn8sE/edit?usp=sharing">minutes</a> if you want to delve into these
+topics.</p>
+
+<p><a name="other-specs"></a></p>
+<h2 id="integrating-fetch-event-with-other-specs">Integrating Fetch Event with Other Specs</h2>
+
+<p>The group decided to investigate and document how the fetch spec should be
+integrated into pre-existing specs.</p>
+
+<hr />
+
+<p>Currently service workers are defined in two specs:</p>
+
+<ul>
+  <li>The <a href="https://slightlyoff.github.io/ServiceWorker/spec/service_worker/index.html">service worker spec</a> defines how to register and message the worker
+objects.  It also defines the life cycle of service workers.</li>
+  <li>The <a href="https://fetch.spec.whatwg.org/">fetch spec</a> defines how network requests are performed.  At a particular
+point in these steps it calls out to the service worker spec to perform
+fetch event network interception.</li>
+</ul>
+
+<p>Unfortunately, the majority of the other pre-existing specs do not currently use
+the fetch spec to perform network requests.  Instead they use their own algorithm
+or no specific algorithm at all.</p>
+
+<p>This is a problem because many of the security checks in the fetch spec require
+that attributes are set properly on the request.  Each spec must set the
+appropriate Request context and mode.</p>
+
+<p>In addition, its unclear if certain specs should not intercept at all.  For
+example, it seems appcache requests should never produce service worker fetch
+events, but what about things like CSP violation reports?</p>
+
+<p>These questions are not currently answered by the available specs.</p>
+
+<p>At the meeting last week, however, Google’s <a href="https://twitter.com/FalkenMatto">Matt Falkenhagen</a> offered to help
+us at least determine what Chrome currently ships.  We plan to examine each
+network request call site to methodically determine the correct behavior and
+attributes.  We will then document the result in the fetch spec until it
+can be properly moved integrated into the other specs.</p>
+
+<p>This is great news for Mozilla because the potential security holes here
+are the main reason we chose <a href="/blog/2015/06/18/service-workers-will-not-ship-in-firefox-41/">not to ship in Firefox 41</a>.</p>
+
+<p><a name="foreign-fetch"></a></p>
+<h2 id="fall-through-or-foreign-fetch">Fall-through or Foreign Fetch</h2>
+
+<p>The group decided to pursue a fetch oriented design for communicating with
+cross-origin service workers.</p>
+
+<hr />
+
+<p>For a while now Google has been working on an addition to the spec to allow
+service workers for different origins to communicate with one another.  This
+would support use cases such as:</p>
+
+<ul>
+  <li>Offline analytics</li>
+  <li>Cloud storage APIs</li>
+  <li>Efficiently sharing fonts</li>
+</ul>
+
+<p>The solution was originally envisioned as an RPC-like API called
+<a href="https://github.com/mkruisselbrink/navigator-connect">navigator.connect()</a>.</p>
+
+<p>Over time, however, the effort migrated to a system based on FetchEvent.  The
+idea is to permit a service worker to intercept fetch events to its own origin.
+So, for example, Google could register a service worker that receives fetch
+events for analytics.js and instantly returns the script from the offline Cache.</p>
+
+<p>In general, we prefer this fetch event based system better for a number of
+reasons:</p>
+
+<ol>
+  <li>Its more “webby” using HTTP requests instead of RPC-like messags.</li>
+  <li>As a consequence its easy to provide offline support for REST APIs build on
+top of HTTP verbs like GET and POST.</li>
+  <li>Its progressive.  If a browser does not support this new system, then the
+requests simply go to the server as they used to.</li>
+</ol>
+
+<p>While there is general agreement with the direction, we still need to work out
+the details.  Google has proposed <a href="https://github.com/slightlyoff/ServiceWorker/issues/684">fall-through fetch</a>, while Mozilla has
+proposed <a href="https://wiki.whatwg.org/wiki/Foreign_Fetch">foreign fetch</a>.  They are very similar, however, and we don’t
+currently anticipate any difficult issues.</p>
+
+<p><a name="no-fetch"></a></p>
+<h2 id="no-fetch-optimization">No-fetch Optimization</h2>
+
+<p>The group decided to provide an API during the install event to explicitly
+<a href="https://github.com/slightlyoff/ServiceWorker/issues/718#issuecomment-123530545">opt-out of fetch events</a> for a particular service worker.</p>
+
+<hr />
+
+<p>Currently the registration API assumes that a service worker is going to be
+handling fetch events.  You must provide a scope to identify the service
+worker.  If a network request matches that scope, then you are going to get
+a fetch event.  If you don’t actually intend to handle the event, this adds
+needless delay to network requests.</p>
+
+<p>Many options were discussed, but the final solution we settled on is to
+provide <code class="highlighter-rouge">disableFetch()</code> and <code class="highlighter-rouge">enableFetch()</code> methods on the install event.</p>
+
+<p><a name="updates"></a></p>
+<h2 id="coordinated-updates">Coordinated Updates</h2>
+
+<p>The group decided that we need to support <a href="https://github.com/slightlyoff/ServiceWorker/issues/727">coordinated updates</a> for
+sites with multiple service workers.</p>
+
+<hr />
+
+<p>Currently its difficult to use multiple service workers for the same site.
+When you update their code, one will always update before the other one
+creating the potential for bugs.</p>
+
+<p>We need to spec an extension to the API to allow multiple service workers
+to update together coherently.</p>
+
+<p><a name="max-age"></a></p>
+<h2 id="service-worker-max-age-header">Service-Worker-Max-Age Header</h2>
+
+<p>The group decided to support the <a href="https://github.com/slightlyoff/ServiceWorker/issues/721">Service-Worker-Max-Age header</a>.</p>
+
+<hr />
+
+<p>Currently the update algorithm only examines the top level service worker
+script to determine if there is a new version.  Code within imported scripts
+is not examined.  This can make it awkward to trigger service worker updates
+when one of these dependent scripts has changed.</p>
+
+<p>The <a href="https://github.com/slightlyoff/ServiceWorker/issues/721">Service-Worker-Max-Age header</a> provides a way to opt-out of this
+behavior by setting a maximum time to run any single version of the service
+worker.</p>
+
+<p><a name="meetings"></a></p>
+<h2 id="meeting-planning">Meeting Planning</h2>
+
+<p>Finally, the group decided to have more frequent face-to-face meetings.  The
+next one will be held at <a href="http://www.w3.org/2015/10/TPAC/">TPAC</a> at the end of October.</p>
+
+<hr />
+
+<p><small><a href="https://www.flickr.com/photos/42931449@N07/5418401602">Highlighter image</a> courtesy of <a href="https://www.flickr.com/photos/42931449@N07/">photosteve101</a>.</small></p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Intent to Implement Streams in Firefox]]></title>
+    <link href="http://localhost:4000/blog/2015/06/19/intent-to-implement-streams-in-firefox.html"/>
+    <updated>2015-06-19T14:50:00-04:00</updated>
+    <id>http://localhost:4000/blog/2015/06/19/intent-to-implement-streams-in-firefox</id>
+    <content type="html"><![CDATA[<p><img class="pull-right" src="/images/logo-streams.svg" width="100" /></p>
+
+<p>In the next few months I intend to begin implementing the <a href="https://streams.spec.whatwg.org/">Streams API</a>
+in the Gecko codebase.</p>
+
+<!-- more -->
+
+<p>Google has been working on this spec for a while and has shipped a small
+subset of the API for the <a href="https://groups.google.com/a/chromium.org/forum/#!topic/blink-dev/35_QSL1ABTY">fetch Response body</a>.  Over the last few months
+I’ve worked with others at Mozilla and Google to try to evaluate if this
+spec is suitable for Firefox.</p>
+
+<p>This evaluation resulted in three main concerns that I believe have been
+addressed.</p>
+
+<h2 id="async-read">Async Read</h2>
+
+<p>The current spec proposes a <code class="highlighter-rouge">read()</code> function that always returns a promise.
+We had concerns about possible performance problems with forcing an asynchronous
+callback and creating an additional object on every read.</p>
+
+<p>To investigate this issue we implemented a couple rough benchmarks to try to
+determine what kind of performance could be expected.  The details here are a
+bit long, so I wrote a separate post describing the <a href="/blog/2015/06/19/evaluating-streams-api-async-read/">async read evaluation</a>.</p>
+
+<p>The end conclusion, however, was the the currently proposed <code class="highlighter-rouge">read()</code> should not
+be a problem in practice.</p>
+
+<h2 id="algorithms-operating-on-the-public-api">Algorithms Operating on the Public API</h2>
+
+<p>As currently proposed, the Streams spec defines certain algorithms in terms of
+publicly exposed functions.</p>
+
+<p>For example, <code class="highlighter-rouge">pipeTo()</code> is essentially spec’d as:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>function doPipe() {
+  lastRead = reader.read();
+  Promise.all([lastRead, dest.ready]).then(([{ value, done }]) =&gt; {
+    if (Boolean(done) === true) {
+      closeDest();
+    } else if (dest.state === 'writable') {
+      lastWrite = dest.write(value);
+      doPipe();
+    }
+  });
+}
+</code></pre></div></div>
+
+<p>This calls the public <code class="highlighter-rouge">.read()</code> function on the source stream’s reader and the
+public <code class="highlighter-rouge">.write()</code> function on the sink stream.</p>
+
+<p>At face value this is a fine thing to do.  It enables creating duck typed streams.
+It also allows “JavaScripty” things like monkey patching these functions to observe
+the stream.</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>var origWrite = dest.write;
+dest.write = function(value) {
+  console.log('Writing: ' + value);
+  origWrite(value);
+};
+</code></pre></div></div>
+
+<p>Unfortunately, providing this kind of feature makes certain kinds of optimizations
+in the browser exceptionally hard.</p>
+
+<p>For example, consider if the source stream and sink stream being piped together are
+both C++ implemented streams.  Perhaps the source is a Response.body and the sink
+is a file stream (which is not currently spec’d).</p>
+
+<p>In this case, the browser should be able to perform the data copying on a separate
+thread.  There is nothing that requires actually interrupting the JavaScript
+event loop with copying operations.</p>
+
+<p>That is, unless JavaScript monkey patches the <code class="highlighter-rouge">.read()</code> or <code class="highlighter-rouge">.write()</code> functions.
+In that case, the browser must round-trip each value copy through the JavaScript
+thread.</p>
+
+<p>Even if we were to add checking for monkey patching vs unmodified public functions,
+the checks add complexity and introduce performance penalties themselves.</p>
+
+<p>To avoid these kinds of issues, it’s cleanest if algorithms like <code class="highlighter-rouge">pipeTo()</code> are instead
+spec’d to operate on internal data.  Instead of calling <code class="highlighter-rouge">.read()</code> they would “read from
+the internal source”.  Instead of calling <code class="highlighter-rouge">.write()</code> they would “write to the
+internal sink”.</p>
+
+<p>While the original design was written in terms of public functions, I believe we have
+consensus to move to an <a href="https://github.com/whatwg/streams/issues/321">internal object design</a>.</p>
+
+<h2 id="transferring-streams-between-threads">Transferring Streams Between Threads</h2>
+
+<p>Finally, we feel it’s important that the spec supports transferring streams from one
+thread to another.  So for example, a fetch Response could be initiated on the main
+thread in a window, the body stream passed to a Worker to process the data, and
+finally streamed to storage.</p>
+
+<p>Again, I believe we have an informal agreement on how to move forward.  The
+<a href="https://github.com/whatwg/streams/issues/276">thread transfer issue</a> outlines how the stream would be locked on the current
+thread and conceptually drained as the new thread reads it.</p>
+
+<p>For C++ source streams this may not result in any copying, but instead just moving
+a handle over behind the scenes.  For JavaScript streams, the data would be read as
+normal and copied across to the new thread.</p>
+
+<p>This generally needs many of the same things required for off-main-thread
+<code class="highlighter-rouge">pipeTo()</code>.  For example, in addition to the internal object design mentioned above,
+the spec also uses a locked reader design which further supports these kinds of
+optimizations.</p>
+
+<h2 id="looking-forward">Looking Forward</h2>
+
+<p>With these concerns in mind I intend to begin implementing Streams in Gecko.</p>
+
+<p>In addition to providing an implementation, I believe this will allow me to be more
+active in shaping the spec itself.  Many parts of the spec are stable, but things
+are still changing.  Work is proceeding on writable streams, byte streams, and
+transforms.  It’s in everyone’s interest to have more browser vendors actively
+engaged in working with the spec to find issues early.</p>
+
+<p>Shipping code will depend on how things finalize in the spec and the code, of
+course.  My hope, however, is to have an implementation of the fetch Response
+body stream shipping by the end of the year.  This is the same subset of the
+spec currently shipped by Chrome.</p>
+
+<p>Please let me know if you have any questions or concerns.</p>
+
+<hr />
+
+<p><small>Thank you to Domenic Denicola and Andrew Overholt for reviewing an earlier draft
+of this post.</small></p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Evaluating the Streams API's Asynchronous Read Function]]></title>
+    <link href="http://localhost:4000/blog/2015/06/19/evaluating-streams-api-async-read.html"/>
+    <updated>2015-06-19T14:50:00-04:00</updated>
+    <id>http://localhost:4000/blog/2015/06/19/evaluating-streams-api-async-read</id>
+    <content type="html"><![CDATA[<p>For a while now Google’s <a href="https://twitter.com/domenic">Domenic Denicola</a>, <a href="https://twitter.com/ysnysnysn">Takeshi Yoshino</a>, and others have been
+working on a new specification for streaming data in the browser.  The
+<a href="https://streams.spec.whatwg.org/">Streams API</a> is important because it allows large resources to be processed
+in a memory efficient way.  Currently, browser APIs like XMLHttpRequest do not
+support this kind of processing.</p>
+
+<p>Mozilla is very interested in implementing some kind of streaming data interface.
+To that end we’ve been evaluating the proposed Streams spec to determine if its
+the right way forward for Firefox.</p>
+
+<p>In particular, we had a concern about how the proposed <code class="highlighter-rouge">read()</code> function was
+defined to always be asynchronous and return a promise.  Given how often data
+is <code class="highlighter-rouge">read()</code> from a stream, it seemed like this might introduce excessive overhead
+that could not be easily optimized away.  To try to address that concern we wrote
+some rough benchmarks to see how the spec might perform.</p>
+
+<p><strong>TL;DR:</strong> The benchmarks suggest that the <a href="https://streams.spec.whatwg.org/">Streams API</a>’s asynchronous
+<code class="highlighter-rouge">read()</code> will not cause performance problems in practice.</p>
+
+<!-- more -->
+
+<h2 id="the-concern">The Concern</h2>
+
+<p>Before we describe the benchmarks, let’s discuss what our concern was in a
+more detail.</p>
+
+<p>The spec currently defines the <code class="highlighter-rouge">read()</code> function as returning a promise.  When
+data is available in the stream, then the promise resolves with the data.</p>
+
+<p>So a typical read loop might look like this with the proposed spec:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>var reader = stream.getReader();
+reader.read().then(function handleChunk(result) {
+  if (result.done) {
+    return;
+  }
+
+  processChunk(result.value);
+
+  return reader.read().then(handleChunk);
+});
+</code></pre></div></div>
+
+<p>This API was ultimately chosen after <a href="https://github.com/whatwg/streams/issues/253">much discussion</a> in order to support
+certain optimizations.</p>
+
+<p>In contrast, other streaming APIs often provide a synchronous read operation
+with some way to determine when data is available.</p>
+
+<p>Consider what a read loop using node.js streams looks like:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>stream.on('readable', function handleReadable() {
+  var chunk = stream.read();
+  while (chunk) {
+    processChunk(chunk);
+    chunk = stream.read();
+  }
+
+  stream.on('readable', handleReadable);
+});
+</code></pre></div></div>
+
+<p>These loops have a lot in common.  They both use an async callback to iteratively
+process chunks of data.  The difference, however, is in how much work they can
+perform for each async callback.</p>
+
+<p>The node.js streams can completely drain the stream on each async callback.  In the
+Streams API loop, however, there is one async callback per chunk even if there are
+many chunks already buffered up in memory.  In addition, it allocates an additional
+object each read for the promise.</p>
+
+<p>We were concerned that these additional async callbacks and promise allocations
+would introduce a noticeable performance penalty.</p>
+
+<p>In order to try to assess if this possibility we wrote a couple benchmarks.  These
+benchmarks are not perfect.  The spec is essentially conceptual at this point without
+a full concrete implementation.  In addition, we want to compare to possible
+implementations.  This is difficult to do without fully implementing the spec.
+Therefore, these benchmarks are very much speculative and may not reflect the final
+performance.  Currently, however, they are the best that we have available.</p>
+
+<h2 id="micro-benchmarking">Micro-Benchmarking</h2>
+
+<p>The first benchmark we tried was a micro test.  It essentially executed the loops
+above for different numbers of “buffered chunks”.  A version of <a href="http://benchmarkjs.com/">benchmark.js</a> was
+then used to repeat the tests and get stable, significant results.</p>
+
+<p>In addition, the micro benchmark was executed using both native and <a href="https://github.com/petkaantonov/bluebird">Bluebird</a>
+promises across a variety platforms and browsers.</p>
+
+<p>The <a href="https://github.com/wanderview/streams-promise-read">code for the micro benchmark</a> is available on Github.  You can also
+<a href="https://blog.wanderview.com/streams-promise-read/">run the micro benchmark</a> yourself.</p>
+
+<p>So, what kind of results did this benchmark produce?  First, lets compare native
+promises to Bluebird promises.</p>
+
+<p><img class="center-block" src="/images/streams-micro-promise-type-chart.png" /></p>
+
+<p>Here we can see that Bluebird promises are currently significantly faster than
+native promises in this test.  This is not terribly surprising as there are
+known areas for improvement in both Firefox’s and Chrome’s promise
+implementations.  In the long term, though, we expect both browsers’ native
+promises to be competitive with Bluebird performance.</p>
+
+<p>Based on these results, we’ll just focus on the Bluebird results from now on.</p>
+
+<p>With that in mind, lets see how things look on a desktop platform.</p>
+
+<p><img class="center-block" src="/images/streams-micro-desktop-chart.png" /></p>
+
+<p>This shows that on both Chrome and Firefox the synchronous read loop achieves
+greater throughput than the async read loop.  In addition, the sync read loop
+has a shallower slope and does not degrade as quickly as we increase the number
+of buffered chunks in the pipe.</p>
+
+<p>Now lets look at performance on a Nexus5.</p>
+
+<p><img class="center-block" src="/images/streams-micro-mobile-chart.png" /></p>
+
+<p>This shows a similar story, although the throughput is greatly reduced (as
+we would expect for a such a device).  The drop off for the async read is
+significant enough that at 128 chunks in the pipe both Chrome and Firefox
+require more than 1ms to drain a pipe with the async read.  Given 60fps
+time budgets, this is a significant amount of time.</p>
+
+<p>At this point I’m sure some of you are saying “wait a minute, I thought the
+TLDR was that the async read was not a problem!”  These results certainly do
+look grim.</p>
+
+<p>Domenic, however, <a href="https://github.com/whatwg/streams/issues/320#issuecomment-91424200">correctly pointed out</a> that streams performance will
+typically be dominated by source or sink I/O.  The micro benchmark does
+not capture the overall performance of a system using streams.  What we
+really care about is how streams will perform in real systems and not in
+artificial benchmarks like this.</p>
+
+<h2 id="approximating-a-system">Approximating a System</h2>
+
+<p>So next we attempted to write a macro level benchmark that compares the
+impact of async read on a system using streams.  This was much more difficult.
+We finally settled on a Rube-Goldberg setup like this:</p>
+
+<p><img class="center-block" src="/images/streams-macro-benchmark-diagram.png" /></p>
+
+<p>Here we have a node.js server that responds to an HTTP request by echoing
+back time stamps in a stream.  The browser receives these time stamps using
+the Fetch Response body stream that has been implemented by Chrome.  The
+time stamps are then individually parsed out and sent back to the node.js server
+via websocket.  The node.js server then compares the time stamps to determine
+round-trip latency.  The total numbers of time stamps are also counted to
+measure throughput.</p>
+
+<p>The key part of this setup is where the Response body stream provides a buffered
+chunk of data containing multiple time stamps.  A wrapper stream is used to parse
+the chunk into individual time stamps.  Each time stamp is represented as an
+object.  This means that a single chunk from the network-oriented Response body
+is translated into many smaller chunks.  This is similar to the “buffer chunks in
+a pipe scenario” in the micro benchmark.  These smaller chunks are then read
+using either a sync or async interface.</p>
+
+<p>Switching between these read interfaces at this point gives us the difference we
+are looking for and lets us compare the impact of sync vs async read on the
+system.</p>
+
+<p>The <a href="https://github.com/wanderview/streams-time-echo">code for the macro benchmark</a> is available on Github.  You can also
+run the macro benchmark yourself by checking out the repo and running the
+node.js server on your local network.</p>
+
+<p>It should be noted, however, this benchmark is not particularly stable.  Since
+the Chrome Fetch Response body stream does not currently support backpressure, the test
+had to manually implement this in the node.js server to avoid simply swamping
+the browser.  This manual backpressure mechanism then creates a possibility for
+deadlock with the buffering algorithm within the Response body stream.  Its
+a bit fragile and I did not take the time to fully fix it.  In the interests of
+time I instead restarted the test when this occurred.</p>
+
+<p>For this test we did not vary any settings.  Instead we simply measured
+the throughput across 20 executions and took the mean.</p>
+
+<p><img class="center-block" src="/images/streams-macro-throughput-chart.png" /></p>
+
+<p>We can see a few things here.  First, the Nexus5 achieves about 80% of the
+throughput of desktop.  The main exception is the async read case using
+native promises which runs much slower.  This particular result is not too
+surprising, however, given the native-vs-Bluebird results above.</p>
+
+<p>Again, since we expect native promises to approach Bluebird performance in the
+future, we will just ignore the native promise results for now.</p>
+
+<p>For the Bluebird cases it appears that there is not much difference between
+async read and sync read in this test.  Indeed, performing a t-test on the
+data shows alpha values ranging from 0.16 to 0.82.  This suggests that there is
+not enough statistical evidence to detect a difference between async and
+sync read.</p>
+
+<p>The data for all of these results can be found in this <a href="https://docs.google.com/spreadsheets/d/1rl6mbD2z1x1bgJLD6y9KJLYWjppB7BujfiWvUMjYTVs/edit?usp=sharing">spreadsheet</a>.</p>
+
+<h2 id="conclusions">Conclusions</h2>
+
+<p>The results from the micro benchmark clearly show that in isolation a synchronous
+read function is faster than an asynchronous read function for a particular
+kind of buffered work load.  The macro benchmark, however, supports Domenic’s
+contention that this type of work load does not realistically occur in systems
+performing I/O.</p>
+
+<p>Benchmarking is hard.  It’s especially hard when you’re trying to compare
+non-existent, potential implementations of a specification.  The tests we
+ran are clearly not perfect here, but they are reasonable approximations of future
+behavior and do provide some insight.  In the absence of better data we must
+decide how to move forward with the information at hand.</p>
+
+<p>Given these results, we have concluded that the asynchronous read function in the
+Streams API is acceptable and will likely not be a performance problem.</p>
+
+<hr />
+
+<p><small>Thank you to Domenic Denicola for reviewing an earlier draft of this
+post.</small></p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Service Workers Will Not Ship in Firefox 41]]></title>
+    <link href="http://localhost:4000/blog/2015/06/18/service-workers-will-not-ship-in-firefox-41.html"/>
+    <updated>2015-06-18T11:15:00-04:00</updated>
+    <id>http://localhost:4000/blog/2015/06/18/service-workers-will-not-ship-in-firefox-41</id>
+    <content type="html"><![CDATA[<p>In <a href="/blog/2015/03/24/service-workers-in-firefox-nightly">my last post</a> I tried to estimate when Service Workers would ship in
+Firefox.  I was pretty sure it would not make it in 40, but thought 41 was a
+possibility.  It’s a few months later and things are looking clearer.</p>
+
+<p>Unfortunately, Service Workers will not ship in Firefox 41.</p>
+
+<!-- more -->
+
+<p>While Service Workers are largely feature complete, we’ve had issues with the
+network interception code.  It’s become clear that implementing this feature
+has introduced a number of security risks.  We need to perform a fresh security
+audit before the code can ship.</p>
+
+<p>This was a difficult decision to make, but we feel it was the right one
+given the security implications.</p>
+
+<p>That being said, it’s still possible we will ship parts of the Service Worker
+spec in Firefox 41:</p>
+
+<ul>
+  <li>
+    <p>Specifically, push notifications are very close and may make it into the
+release.  If this occurs we will add a preference to disable fetch event
+while exposing the rest of the Service Worker API.  This will allow push-based
+Service Workers while the network interception goes through its security audit.</p>
+  </li>
+  <li>
+    <p>In addition, it seems likely that the Cache API will ship in Firefox 41.  While
+this feature is not as useful without the fetch event, it’s a large piece needed
+to support offline web pages.  Getting it released moves us that much closer to
+full offline support and will let us focus more people on polishing network
+interception.</p>
+  </li>
+</ul>
+
+<p>As always, we appreciate your support and patience.  Please don’t hesitate to
+contact us if you encounter any problems.</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Service Workers in Firefox Nightly]]></title>
+    <link href="http://localhost:4000/blog/2015/03/24/service-workers-in-firefox-nightly.html"/>
+    <updated>2015-03-24T11:15:00-04:00</updated>
+    <id>http://localhost:4000/blog/2015/03/24/service-workers-in-firefox-nightly</id>
+    <content type="html"><![CDATA[<p><img class="pull-right" src="/images/nightly-logo-small.png" width="200" /></p>
+
+<p>I’m pleased to announce that we now recommend normal Nightly builds for testing
+our implementation of Service Workers.  We will not be posting any more custom
+builds here.</p>
+
+<!-- more -->
+
+<p>Now that <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1110814">bug 1110814</a> has landed in mozilla-central, Nightly has roughly the
+same functionality as the last sw-build.  Just enable these preferences in
+about:config:</p>
+
+<ul>
+  <li>Set <code class="highlighter-rouge">dom.caches.enabled</code> to true.</li>
+  <li>Set <code class="highlighter-rouge">dom.serviceWorkers.enabled</code> to true.</li>
+</ul>
+
+<p>Please note that on Firefox OS you must enable an additional preference as well.
+See <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1125961#c35">bug 1125961</a> for details.</p>
+
+<p>In addition, we’ve decided to move forward with enabling the Service Worker and
+Cache API preferences by default in non-releases builds.  We expect the Cache
+preference to be enabled in the tree today.  The Service Worker preference should
+be enabled within the next week once <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=931249">bug 931249</a> is complete.</p>
+
+<p>When Nightly merges to Aurora (Developer Edition), these preferences will also be
+enabled by default there.  They will not, however, ride the trains to Beta or
+Release yet.  We feel we need more time stabilizing the implementation before that
+can occur.</p>
+
+<p>So, unfortunately, I cannot tell you exactly which Firefox Release will ship with
+Service Workers yet.  It will definitely not be Firefox 39.  Its possible Service
+Workers will ship in Firefox 40, but its more likely to finally be enabled in
+Firefox 41.</p>
+
+<p>Developer Edition 39, however, will have Cache enabled and will likely also have
+Service Workers enabled.</p>
+
+<p>Finally, while the code is stabilizing you may see Service Worker registrations
+and Cache data be deleted when you update the browser.  If we find that the data
+format on disk needs to change we will simply be reseting the relevant storage
+area in your profile.  Once the decision to ship is made any future changes will
+then properly migrate data without any loss.  Again, this only effects Service
+Worker registrations and data stored in Cache.</p>
+
+<p>As always we appreciate your help testing, reporting bugs, and implementing code.</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Initial Cache API Lands in Nightly]]></title>
+    <link href="http://localhost:4000/blog/2015/03/09/initial-cache-api-lands-in-nightly.html"/>
+    <updated>2015-03-09T11:30:00-04:00</updated>
+    <id>http://localhost:4000/blog/2015/03/09/initial-cache-api-lands-in-nightly</id>
+    <content type="html"><![CDATA[<p>Its been two busy weeks since the last Service Worker build and a lot has
+happened.  The first version of the Cache API has landed in Nightly along
+with many other improvements and fixes.</p>
+
+<!-- more -->
+
+<p>The Cache landing is nice because it was the largest set of patches blocking
+users from testing directly in Nightly.  Finally getting it into the tree brings
+us much closer to the point where we don’t need these custom builds any more.</p>
+
+<p>We’re not there yet, though.  The custom builds will still be needed until
+the following two issues are fixed:</p>
+
+<ul>
+  <li>Cache.put() current does not work.  In order to fix this we must integrate
+Cache with the CrossProcessPipe.  These patches have been in the custom builds
+from the start, but we must complete the work in order for most Service Worker
+sites to be usable on Nightly. | <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1110814">bug 1110814</a></li>
+  <li>Service Worker scripts and their dependencies are not currently saved for
+offline access.  Obviously, we must fix this in order for Service Workers
+to provide true offline support.  This feature is in progress, but unfortunately
+is not in the custom build yet. | <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=931249">bug 931249</a></li>
+</ul>
+
+<p>Once these two bugs are fixed we will begin encouraging the community to test
+with Nightly directly.</p>
+
+<p>This week’s build was updated as of yesterday, March 8:</p>
+
+<p><a href="/sw-builds">Firefox Service Worker Builds</a></p>
+
+<p>This build includes the following feature changes in Nightly:</p>
+
+<ul>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>Cache API</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=940273">bug 940273</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>FetchDriver channel stalls when Service Worker returns from fetch event too
+early | <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1130803">bug 1130803</a></li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>remove Service Worker Cache “prefixMatch” option</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1130452">bug 1130452</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>ServiceWorkerGlobalScope.close() should throw InvalidAccessError |
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1131353">bug 1131353</a></li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>ServiceWorkerClients API spec changes</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1058311">bug 1058311</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>Remove ServiceWorkerGlobalScope.scope</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1132673">bug 1132673</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>ServiceWorker: client.postMessage should be dispatched to
+navigator.serviceWorker.onmessage | <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1136467">bug 1136467</a></li>
+</ul>
+
+<p>It also includes these bug fixes:</p>
+
+<ul>
+  <li>navigator.serviceWorker.controller does not track underlying state |
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1131882">bug 1131882</a></li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>Fix registration persistence in some activation cases</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1131874">bug 1131874</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>Don’t persist registrations that fail</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1132141">bug 1132141</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>FetchDriver should check content load policy before proceeding |
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1139665">bug 1139665</a></li>
+  <li>Use correct principal for channel which updates ServiceWorker |
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1137419">bug 1137419</a></li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>Seg Fault when calling cache.matchAll without parameters</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1138916">bug 1138916</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>Crash in ActorChild::SetFeature</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1140065">bug 1140065</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>Fix -Winconsistent-missing-override warnings introduced in Cache API |
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1139603">bug 1139603</a></li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>disallow creating nested workers from ServiceWorker</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1137398">bug 1137398</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+</ul>
+
+<p>Finally, a number of testing changes were made:</p>
+
+<ul>
+  <li>Replace getServiced() with matchAll() in a couple of ServiceWorker tests |
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1137477">bug 1137477</a></li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>Various ServiceWorker test fixes</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1139561">bug 1139561</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>Remove activatingWorker warning in ServiceWorkerManager</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1139990">bug 1139990</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+  <li>Remove a couple of unused test functions on ServiceWorkerContainer |
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1140120">bug 1140120</a></li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>nice to have a test-interfaces.html for ServiceWorkers</td>
+          <td><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1137816">bug 1137816</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+</ul>
+
+<p>Many thanks to all the contributors:</p>
+
+<ul>
+  <li><a href="https://twitter.com/baku82845977">Andrea Marchesini</a></li>
+  <li><a href="https://plus.google.com/+CatalinBadea/about">Catalin Badea</a></li>
+  <li><a href="https://twitter.com/CodingExon">Daniel Holbert</a></li>
+  <li><a href="https://twitter.com/ehsanakhgari">Ehsan Akhgari</a></li>
+  <li><a href="https://twitter.com/Gioyik">Giovanny Gongora</a></li>
+  <li><a href="http://www.janbambas.cz/">Honza Bambas</a></li>
+  <li>Jason Gersztyn</li>
+  <li><a href="https://twitter.com/lastontheboat">Josh Mathews</a></li>
+  <li><a href="https://twitter.com/nikhilcutshort">Nikhil Marathe</a></li>
+</ul>
+
+<p>Please let us know if you find any new issues.  Thank you!</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[That Event Is So Fetch]]></title>
+    <link href="http://localhost:4000/blog/2015/02/23/that-event-is-so-fetch.html"/>
+    <updated>2015-02-23T10:00:00-05:00</updated>
+    <id>http://localhost:4000/blog/2015/02/23/that-event-is-so-fetch</id>
+    <content type="html"><![CDATA[<p>The Service Workers builds have been updated as of yesterday, February 22:</p>
+
+<p><a href="/sw-builds">Firefox Service Worker Builds</a></p>
+
+<!-- more -->
+
+<p>Notable contributions this week were:</p>
+
+<ul>
+  <li><a href="https://twitter.com/lastontheboat">Josh Mathews</a> landed Fetch Event support in Nightly.  This is important,
+of course, because without the Fetch Event you cannot actually intercept
+any network requests with your Service Worker. | <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1065216">bug 1065216</a></li>
+  <li><a href="https://plus.google.com/+CatalinBadea/about">Catalin Badea</a> landed more of the Service Worker API in Nightly, including
+the ability to communicate with the Service Worker using <code class="highlighter-rouge">postMessage()</code>. |
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=982726">bug 982726</a></li>
+  <li><a href="https://twitter.com/nikhilcutshort">Nikhil Marathe</a> landed some more of his spec implementations to handle
+unloading documents correctly and to treat activations atomically. |
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1041340">bug 1041340</a> | <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1130065">bug 1130065</a></li>
+  <li><a href="https://twitter.com/baku82845977">Andrea Marchesini</a> landed fixes for FirefoxOS discovered by the team in
+Paris. | <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1133242">bug 1133242</a></li>
+  <li><a href="https://github.com/jaoo">Jose Antonio Olivera Ortega</a> contributed a work-in-progress patch to force
+Service Worker scripts to update when <code class="highlighter-rouge">dom.serviceWorkers.test.enabled</code> is
+set. | <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1134329">bug 1134329</a></li>
+  <li>I landed my implementation of the Fetch Request and Response <code class="highlighter-rouge">clone()</code>
+methods. | <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1073231">bug 1073231</a></li>
+</ul>
+
+<p>As always, please let us know if you run into any problems.  Thank you for
+testing!</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[A Very Special Valentines Day Build]]></title>
+    <link href="http://localhost:4000/blog/2015/02/14/a-very-special-valentines-day-build.html"/>
+    <updated>2015-02-14T14:26:52-05:00</updated>
+    <id>http://localhost:4000/blog/2015/02/14/a-very-special-valentines-day-build</id>
+    <content type="html"><![CDATA[<p><img class="pull-right" src="/images/sw-candy-heart.jpg" /></p>
+
+<p>Last week we <a href="/blog/2015/02/10/introducing-firefox-service-worker-builds/">introduced some custom Firefox builds</a> that include our
+work-in-progress on Service Workers.  The goal of these builds is to enable
+wider testing of our implementation as it continues to progress.</p>
+
+<p>These builds have been updated today, February 14:</p>
+
+<p><a href="/sw-builds">Firefox Service Worker Builds</a></p>
+
+<!-- more -->
+
+<p>This week’s build provides a number of improvements:</p>
+
+<ul>
+  <li><a href="https://twitter.com/baku82845977">Andrea Marchesini</a> landed <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=984050">bug 984050</a> in Nightly implementing
+peristent Service Worker registrations.  Previously registrations would
+be forgotten once the browser was closed.  Obviously, persistent
+registrations is a key feature necessary to implement offline web apps
+with Service Workers.</li>
+  <li><a href="https://twitter.com/nikhilcutshort">Nikhil Marathe</a> has a patch in <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1130065">bug 1130065</a> that fixes some of the
+trickier aspects of activating a Service Worker for a document.</li>
+  <li>The Paris team has also been investigating using Service Workers on
+FirefoxOS.  With Andrea’s help this work is being moved into the tree and
+is also included in this build.</li>
+  <li>As a result, this build now includes a FirefoxOS build for the Flame device
+based on the v18D firmware.</li>
+</ul>
+
+<p>Also, some patches that were included in last week’s build have landed in the
+tree for Nightly:</p>
+
+<ul>
+  <li>As mentioned above, persistent registrations landed in <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=984050">bug 984050</a>.</li>
+  <li>Improvements to gecko’s stream infrastructure to support cloning also landed
+in <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1100398">bug 1100398</a>.</li>
+</ul>
+
+<p>As always, please let us know if you have any questions or run into any
+problems.  Thank you for your assistance in testing this new feature!</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Introducing Firefox Service Worker Builds]]></title>
+    <link href="http://localhost:4000/blog/2015/02/10/introducing-firefox-service-worker-builds.html"/>
+    <updated>2015-02-10T14:00:00-05:00</updated>
+    <id>http://localhost:4000/blog/2015/02/10/introducing-firefox-service-worker-builds</id>
+    <content type="html"><![CDATA[<p>About <a href="/blog/2014/12/08/implementing-the-serviceworker-cache-api-in-gecko/">two months ago I wrote</a> that the Service Worker Cache code was entering
+code review.  Our thought at the time was to quickly transition all of the
+work that had been done on the maple project branch back into Nightly.  The
+project branch wasn’t really needed any more and the code could more easily be
+tested by the community on Nightly.</p>
+
+<p>Fast forward to today and, unfortunately, we are still working to make this
+transition.  Much of the code from maple is still in review.  Meanwhile, the project
+branch has languished and is not particularly useful any more.  Obviously, this
+is a bad situation as it has made testing Service Workers with Firefox nearly
+impossible.</p>
+
+<p>To address this we are going to begin posting periodic builds of Nightly with
+the relevant Service Worker code included.  These builds can be found here:</p>
+
+<p><a href="/sw-builds">Firefox Service Worker Builds</a></p>
+
+<!-- more -->
+
+<p>This page will be updated as code changes or migrates into Nightly.</p>
+
+<p>We are all very excited to see Service Workers adopted on the web and are
+actively working to have it enabled in Firefox Nightly by the end of
+March.  We hope that these builds will allow wider testing of our implementation
+to help us reach that goal.</p>
+
+<p>Thank you for your patience and understanding as we work through the issues
+to get this feature landed and enabled in Nightly.</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Implementing the Service Worker Cache API in Gecko]]></title>
+    <link href="http://localhost:4000/blog/2014/12/08/implementing-the-serviceworker-cache-api-in-gecko.html"/>
+    <updated>2014-12-08T00:43:00-05:00</updated>
+    <id>http://localhost:4000/blog/2014/12/08/implementing-the-serviceworker-cache-api-in-gecko</id>
+    <content type="html"><![CDATA[<p>For the last few months I’ve been heads down, implementing the Service Worker
+Cache API in gecko.  All the work to this point has been done on a <a href="https://hg.mozilla.org/projects/maple/file/tip/dom/cache">project
+branch</a>, but the code is finally reaching a point where it can land in
+mozilla-central.  Before this can happen, of course, it needs to be peer
+reviewed.  Unfortunately this patch is going to be large and complex.  To
+ease the pain for the reviewer I thought it would be helpful to provide a
+high-level description of how things are put together.</p>
+
+<!--more-->
+
+<p>If you are unfamiliar with Service Workers and its Cache API, I highly recommend
+reading the following excellent sources:</p>
+
+<ul>
+  <li><a href="http://jakearchibald.com/2014/offline-cookbook/">The Offline Cookbook</a> by <a href="https://twitter.com/jaffathecake">Jake Archibald</a></li>
+  <li><a href="http://www.html5rocks.com/en/tutorials/service-worker/introduction/">Introduction to Service Worker</a> by <a href="https://twitter.com/gauntface">Matt Gaunt</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorker_API/Using_Service_Workers">Using Service Workers</a> on MDN</li>
+  <li><a href="https://slightlyoff.github.io/ServiceWorker/spec/service_worker/index.html">Service Worker Spec</a></li>
+  <li><a href="https://fetch.spec.whatwg.org/">Fetch Spec</a></li>
+</ul>
+
+<h1 id="building-blocks">Building Blocks</h1>
+<p>The Cache API is implemented in C++ based on the following Gecko primitives:</p>
+
+<ul>
+  <li>
+    <p><strong>WebIDL DOM Binding</strong></p>
+
+    <p>All new DOM objects in gecko now use our new <a href="https://developer.mozilla.org/en-US/docs/Mozilla/WebIDL_bindings">WebIDL bindings</a>.</p>
+  </li>
+  <li>
+    <p><strong>PBackground IPC</strong></p>
+
+    <p><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=956218">PBackground</a> is an IPC facility that connects a child actor to a parent
+  actor.  The parent actor is always in the parent process.  PBackground,
+  however, allows the child actor to exist in either a remote child content
+  process or within the same parent process.  This allows us to build
+  services that support both <a href="https://wiki.mozilla.org/Electrolysis">electrolysis</a> (e10s) and our more traditional
+  single process model.</p>
+
+    <p>Another advantage of PBackground is that the IPC calls are handled by a
+  worker thread rather than the parent process main thread.  This helps
+  avoid stalls due to other main thread work.</p>
+  </li>
+  <li>
+    <p><strong>Quota Manager</strong></p>
+
+    <p><a href="http://dxr.mozilla.org/mozilla-central/source/dom/quota/QuotaManager.h">Quota Manager</a> is responsible for managing the disk space used by web
+  content.  It determines when quota limits have been reached and will
+  automatically delete old data when necessary.</p>
+  </li>
+  <li>
+    <p><strong>SQLite</strong></p>
+
+    <p><a href="https://developer.mozilla.org/en-US/docs/Storage">mozStorage</a> is an API that provides access to an SQLite database.</p>
+  </li>
+  <li>
+    <p><strong>File System</strong></p>
+
+    <p>Finally, the Cache uses raw files in the file system.</p>
+  </li>
+</ul>
+
+<h1 id="alternatives">Alternatives</h1>
+<p>We did consider a couple alternatives to implementing a new storage engine for
+Cache.  Mainly, we thought about using the existing <strong>HTTP cache</strong> or building
+on top of <strong>IndexedDB</strong>.  For various reasons, however, we chose to build
+something new using these primitives instead.  Ultimately it came down to the
+Cache spec not quite lining up with these solutions.</p>
+
+<p>For example, the HTTP cache has an optimization where it only stores a single
+response for a given URL. In contrast, the Cache API spec requires that multiple
+Responses can be stored per-URL based on VARY headers, multiple Cache objects,
+etc.  In addition, the HTTP cache doesn’t use the quota management system and
+Cache must use the quota system.</p>
+
+<p>IndexedDB, on the other hand, is based on structured cloning which doesn’t
+currently support streaming data.  Given that Responses could be quite large
+and come in from the network slowly, we thought streaming was a priority to
+reduce the amount of required memory.</p>
+
+<p>Also, while not a technical issue, IndexedDB was undergoing a significant
+rewrite at the time the Cache work began.  We felt that this would delay the
+Cache implementation.</p>
+
+<h1 id="10000-foot-view">10,000-Foot View</h1>
+<p>With those primitives in mind, the overall structure of the Cache implementation
+looks like this:</p>
+
+<p><img class="center-block" src="/images/cache-high-level-design.png" /></p>
+
+<p>Here we see from left-to-right:</p>
+
+<ul>
+  <li>
+    <p><strong>JS Script</strong></p>
+
+    <p>Web content running in a JavaScript context on the far left.  This could be
+  in a Service Worker, a normal Web Worker, or on the main thread.</p>
+  </li>
+  <li>
+    <p><strong>DOM Object</strong></p>
+
+    <p>The script calls into the C++ DOM object using the <a href="https://developer.mozilla.org/en-US/docs/Mozilla/WebIDL_bindings">WebIDL bindings</a>.
+  This layer does some argument validation and conversion, but is mostly just
+  a pass through to the other layers.  Since most of the Cache API is
+  asynchronous the DOM object also returns a <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise">Promise</a>.  A unique RequestId
+  is passed through to the Cache backend and is later used to find the Promise
+  on completion.</p>
+  </li>
+  <li>
+    <p><strong>Child and Parent IPC Actors</strong></p>
+
+    <p>The connection between the processes is represented by a child and a parent
+  actor.  These have a one-to-one correlation.  In the Cache API request
+  messages are sent from the child-to-parent and response messages are
+  sent back from the parent-to-child.  All of these messages are asynchronous
+  and non-blocking.</p>
+  </li>
+  <li>
+    <p><strong>Manager</strong></p>
+
+    <p>This is where things start to get a bit more interesting.  The Cache spec
+  requires each origin to get its own, unique CacheStorage instance.  This
+  is accomplished by creating a separate per-origin Manager object.  These
+  Manager objects can come and go as DOM objects are used and then garbage
+  collected, but there is only ever one Manager for each origin.</p>
+  </li>
+  <li>
+    <p><strong>Context</strong></p>
+
+    <p>When a Manager has a disk operation to perform it first needs to take a
+  number of stateful steps to configure the QuotaManager properly.  All of
+  this logic is wrapped up in what is called the Context.  I’ll go into
+  more detail on this later, but suffice it to say that the Context handles
+  handles setting up the QuotaManager and then scheduling Actions to occur
+  at the right time.</p>
+  </li>
+  <li>
+    <p><strong>Action</strong></p>
+
+    <p>An Action is essentially a command object that performs a set of IO
+  operations within a Context and then asynchronously calls back to the
+  Manager when they are complete.  There are many different Action objects,
+  but in general you can think of each Cache method, like <code class="highlighter-rouge">match()</code> or
+  <code class="highlighter-rouge">put()</code>, having its own Action.</p>
+  </li>
+  <li>
+    <p><strong>File System</strong></p>
+
+    <p>Finally, the Action objects access the file system through the SQLite
+  database, file streams, or the nsIFile interface.</p>
+  </li>
+</ul>
+
+<h1 id="closer-look">Closer Look</h1>
+<p>Lets take a closer look at some of the more interesting parts of the system.
+Most of the action takes place in the Manager and Context, so lets start
+there.</p>
+
+<h2 id="manager">Manager</h2>
+<p>As I mentioned above, the Cache spec indicates each origin should have its own
+isolated <code class="highlighter-rouge">caches</code> object.  This maps to a single Manager instance for all
+CacheStorage and Cache objects for scripts running in the same origin:</p>
+
+<p><img class="center-block" src="/images/cache-singleton-manager.png" /></p>
+
+<p>Its important that all operations for a single origin are routed through the
+same Manager because operations in different script contexts can interact with
+one another.</p>
+
+<p>For example, lets consider the following CacheStorage method calls being
+executed by scripts running in two separate child processes.</p>
+
+<ol>
+  <li>Process 1 calls <code class="highlighter-rouge">caches.open('foo')</code>.</li>
+  <li>Process 1’s promise resolves with a Cache object.</li>
+  <li>Process 2 calls <code class="highlighter-rouge">caches.delete('foo')</code>.</li>
+</ol>
+
+<p>At this point process 1 has a Cache object that has been removed from the
+<code class="highlighter-rouge">caches</code> CacheStorage index.  Any additional calls to <code class="highlighter-rouge">caches.open('foo')</code>
+will create a new Cache object.</p>
+
+<p>But how should the Cache returned to Process 1 behave?  It’s a bit poorly
+defined in the spec, but the current interpretation is that it should behave
+normally.  The script in process 1 should continue to be able to access
+data in the Cache using <code class="highlighter-rouge">match()</code>.  In addition, it should be able to store
+A value using <code class="highlighter-rouge">put()</code>, although this is somewhat pointless if the Cache is
+not in <code class="highlighter-rouge">caches</code> anymore.  In the future, a <code class="highlighter-rouge">caches.put()</code> call may be added
+to let a Cache object to be re-inserted into the CacheStorage.</p>
+
+<p>In any case, the key here is that the <code class="highlighter-rouge">caches.delete()</code> call in process 2
+must understand that a Cache object is in use.  It cannot simply delete all
+the data for the Cache.  Instead we must reference count all uses of the
+Cache and only remove the data when they are all released.</p>
+
+<p>The Manager is the central place where all of this reference tracking is
+implemented and these races are resolved.</p>
+
+<p>A similar issue can happen with <code class="highlighter-rouge">cache.match(req)</code> and <code class="highlighter-rouge">cache.delete(req)</code>.  If
+the matched Response is still referenced, then the body data file needs to
+remain available for reading.  Again, the Manager handles this by tracking
+outstanding references to open body files.  This is actually implemented by using
+an additional actor called a StreamControl which will be shown in the
+<code class="highlighter-rouge">cache.match()</code> trace below.</p>
+
+<h2 id="context">Context</h2>
+<p>There are a number of stateful rules that must be followed in order to use the
+QuotaManager.  The Context is designed to implement these rules in a way that
+hides the complexity from the rest of the Cache as much as possible.</p>
+
+<p>Roughly the rules are:</p>
+
+<ol>
+  <li>First, we must extract various information from the <code class="highlighter-rouge">nsIPrincipal</code> by calling
+<code class="highlighter-rouge">QuotaManager::GetInfoFromPrincipal()</code> on the main thread.</li>
+  <li>Next, the Cache must call <code class="highlighter-rouge">QuotaManager::WaitForOpenAllowed()</code> on the main
+thread.  A callback is provided so that we can be notified when the open is
+permitted.  This callback occurs on the main thread.</li>
+  <li>Once we receive the callback we must next call
+<code class="highlighter-rouge">QuotaManager::EnsureOriginIsInitialized()</code> on the QuotaManager IO thread.
+This returns a pointer to the origin-specific directory in which we should
+store all our files.</li>
+  <li>The Cache code is now free to interact with the file system in the directory
+retrieved in the last step.  These file IO operations can take place on any
+thread.  There are some small caveats about using QuotaManager specific APIs
+for SQLite and file streams, but for the most part these simply require
+providing information from the <code class="highlighter-rouge">GetInfoFromPrincipal()</code> call.</li>
+  <li>Once all file operations are complete we must call
+<code class="highlighter-rouge">QuotaManager::AllowNextSynchronizedOp()</code> on the main thread.  All file streams
+and SQLite database connections must be closed before making this call.</li>
+</ol>
+
+<p>The Context object functions like a reference counted <a href="http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization">RAII</a>-style object.  It
+automatically executes steps 1 to 3 when constructed.  When the Context object’s
+reference count drops to zero, its destructor runs and it schedules the
+<code class="highlighter-rouge">AllowNextSynchronzedOp()</code> to run on the main thread.</p>
+
+<p>Note, while it appears the <code class="highlighter-rouge">GetInfoFromPrincipal()</code> call in step 1 could be
+performed once and cached, we actually can’t do that.  Part of extracting
+the information is querying the current permissions for the principal.  Its
+possible these can change over time.</p>
+
+<p>In theory, we could perform the <code class="highlighter-rouge">EnsureOriginIsInitialized()</code> call in step 3 only
+once if we also implemented the <code class="highlighter-rouge">nsIOfflineStorage</code> interface.  This interface
+would allow the QuotaManager to tell us to shutdown when the origin directory
+needs to be deleted.</p>
+
+<p>Currently the Cache does not do this, however, because the <code class="highlighter-rouge">nsIOfflineStorage</code>
+interface is expected to change significantly in the near future.  Instead, Cache
+simply calls the <code class="highlighter-rouge">EnsureOriginIsInitialized()</code> method each time to re-create the
+directory if necessary.  Once the API stabilizes the Cache will be updated to
+receive all such notifications from QuotaManager.</p>
+
+<p>An additional consequence of not getting the <code class="highlighter-rouge">nsIOfflineStorage</code> callbacks is
+that the Cache must proactively call <code class="highlighter-rouge">QuotaManager::AllowNextSynchronizedOp()</code>
+so that the next QuotaManager client for the origin can do work.</p>
+
+<p>Given the <a href="http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization">RAII</a>-style life cycle, this is easily achieved by simply having the
+Action objects hold a reference to the Context until they complete.  The
+Manager has a raw pointer to the Context that is cleared when it destructs.  If
+there is no more work to be done, the Context is released and step 5 is
+performed.</p>
+
+<p>Once the new <code class="highlighter-rouge">nsIOfflineStorage</code> API callbacks are implemented the Cache will
+be able to keep the Context open longer.  Again, this is relatively easy and
+simply needs the Manager to hold a strong reference to the Context.</p>
+
+<h2 id="streams-and-ipc">Streams and IPC</h2>
+<p>Since mobile platforms are a key target for Service Workers, the Cache API needs
+to be memory efficient.  RAM is often the most constraining resource on these
+devices.  To that end, our implementation should use streaming whenever possible
+to avoid holding large buffers in memory.</p>
+
+<p>In gecko this is essentially implemented by a collection of classes that
+implement the <code class="highlighter-rouge">nsIInputStream</code> interface.  These streams are pretty
+straightforward to use in normal code, but what happens when we need to serialize
+a stream across IPC?</p>
+
+<p>The answer depends on the type of stream being serialized.  We have a couple
+existing solutions:</p>
+
+<ul>
+  <li>Streams created for a flat memory buffer are simply copied across.</li>
+  <li>Streams backed by a file have their file descriptor <code class="highlighter-rouge">dup()</code>‘d and passed
+across.  This allows the other process to read the file directly without any
+immediate memory impact.</li>
+</ul>
+
+<p>Unfortunately, we do not have a way to serialize an <code class="highlighter-rouge">nsIPipe</code> across IPC without
+completely buffering it first.  This is important for Cache, because this is the
+type of stream we receive from a <code class="highlighter-rouge">fetch()</code> Response object.</p>
+
+<p>To solve this, Kyle Huey is implementing a new <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1093357">CrossProcessPipe</a> that will send
+the data across the IPC boundary in chunks.</p>
+
+<p>In this particular case we will be sending all the fetched
+Response data from the parent-to-child when the <code class="highlighter-rouge">fetch()</code> is performed.  If the
+Response is passed to <code class="highlighter-rouge">Cache.put()</code>, then the data is copied back to the parent.</p>
+
+<p>You may be asking, “why do you need to send the <code class="highlighter-rouge">fetch()</code> data from the child to
+the parent process when doing a <code class="highlighter-rouge">cache.put()</code>?  Surely the parent process
+already has this data somewhere.”</p>
+
+<p>Unfortunately, this is necessary to avoid buffering potentially large Response
+bodies in the parent.  It’s imperative that the parent process never runs out of
+memory.  One day we may be able to open the file descriptor in the parent,
+<code class="highlighter-rouge">dup()</code> it to the child, and then write the data directly from the child process,
+but currently this is not possible with the current Quota Manager.</p>
+
+<h2 id="disk-schema">Disk Schema</h2>
+<p>Finally, that brings us to a discussion of how the data is actually stored on
+disk.  It basically breaks down like this:</p>
+
+<ul>
+  <li>Body data for both Requests and Responses are stored directly in individual
+<a href="https://code.google.com/p/snappy/">snappy</a> compressed files.</li>
+  <li>All other Request and Response data are stored in SQLite.</li>
+</ul>
+
+<p>I know some people <a href="https://wiki.mozilla.org/Performance/Avoid_SQLite_In_Your_Next_Firefox_Feature">discourage using SQLite</a>, but I chose it for a few
+reasons:</p>
+
+<ol>
+  <li>SQLite provides transactional behavior.</li>
+  <li>SQLite is a well-tested system with known caveats and performance
+characteristics.</li>
+  <li>SQL provides a flexible query engine to implement and fine tune the Cache
+matching algorithm.</li>
+</ol>
+
+<p>In this case I don’t think serializing all of the Cache metadata into a flat
+file, as suggested by that wiki page, would be a good solution here.  In general,
+only a small subset of the data will be read or write on each operation.  In
+addition, we don’t want to require reading the entire dataset into memory.
+Also, for expected Cache usage, the data should typically be read-mostly with
+fewer writes over time.  Data will not be continuously appended to the database.
+For these reasons I’ve chosen to go with SQLite while understanding the risks
+and pitfalls.</p>
+
+<p>I plan to mitigate fragmentation by performing regular maintenance.  Whenever
+a row is deleted from or inserted into a table a counter will be updated in a
+flat file.  When the Context opens it will examine this counter and perform a
+VACUUM if it’s larger than a configured constant.  The constant will of course
+have to be fine-tuned based on real world measurements.</p>
+
+<p>Simple marker files will also be used to note when a Context is open.  If the
+browser is killed with a Context open, then a scrubbing process will be
+triggered the next time that origin accesses <code class="highlighter-rouge">caches</code>.  This will look for
+orphaned Cache and body data files.</p>
+
+<p>Finally, the bulk of the SQLite specific code is isolated in two classes;
+<code class="highlighter-rouge">DBAction.cpp</code> and <code class="highlighter-rouge">DBSchema.cpp</code>.  If we find SQLite is not performant
+enough, it should be straightforward to replace these files with another
+solution.</p>
+
+<h1 id="detailed-trace">Detailed Trace</h1>
+<p>Now that we have the lay of the land, lets trace what happens in the Cache when
+you do something like this:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>// photo by leg0fenris: https://www.flickr.com/photos/legofenris/
+var troopers = 'blob:https://mdn.github.io/6d4a4e7e-0b37-c342-81b6-c031a4b9082c'
+
+var legoBox;
+Promise.all([
+  fetch(troopers),
+  caches.open('legos')
+]).then(function(results) {
+  var response = results[0];
+  legoBox = results[1];
+  return legoBox.put(troopers, response);
+}).then(function() {
+  return legoBox.match(troopers);
+}).then(function(response) {
+  // invade rebel base
+});
+</code></pre></div></div>
+
+<p>While it might seem the first Cache operation is <code class="highlighter-rouge">caches.open()</code>, we actually
+need to trace what happens when <code class="highlighter-rouge">caches</code> is touched.  When the <code class="highlighter-rouge">caches</code>
+attribute is first accessed on the global we create the CacheStorage DOM object
+and IPC actors.</p>
+
+<p><img class="center-block" src="/images/cache-create-actor.png" /></p>
+
+<p>I’ve numbered each step in order to show the sequence of events.  These steps
+are roughly:</p>
+
+<ol>
+  <li>The global WebIDL binding for <code class="highlighter-rouge">caches</code> creates a new CacheStorage object
+and returns it immediately to the script.</li>
+  <li>Asynchronously, the CacheStorage object creates a new child IPC actor.  Since
+this may not complete immediately, any requests coming in will be queued
+until actor is ready.  Of course, since all the operations use Promises, this
+queuing is transparent to the content script.</li>
+  <li>The child actor in turn sends a message to the parent process to create a
+corresponding parent actor.  This message includes the nsIPrincipal
+describing the content script’s origin and other identifying information.</li>
+  <li>Before permitting any actual work to take place, the principal provided to
+the actor must be verified.  For various reasons this can only be done on
+the main thread.  So an asynchronous operation is triggered to examine
+the principal and any CacheStorage operations coming in are queued.</li>
+  <li>Once the principal is verified we return to the PBackground worker thread.</li>
+  <li>Assuming verification succeeded, then the origin’s Manager can now be
+accessed or created.  (This is actually deferred until the first operation,
+though.)  Any pending CacheStorage operations are immediately executed.</li>
+</ol>
+
+<p>Now that we have the <code class="highlighter-rouge">caches</code> object we can get on with the <code class="highlighter-rouge">open()</code>.  This
+sequence of steps is more complex:</p>
+
+<p><img class="center-block" src="/images/cache-open-sequence.png" /></p>
+
+<p>There are a lot more steps here.  To avoid making this blog post any more
+boring than necessary, I’ll focus on just the interesting ones.</p>
+
+<p>As with the creation trace above, <strong>steps 1 to 4</strong> are basically just passing
+the <code class="highlighter-rouge">open()</code> arguments across to the Manager.  Your basic digital plumbing at
+work.</p>
+
+<p><strong>Steps 5 and 6</strong> make sure the Context exists and schedules an Action to
+run on the IO thread.</p>
+
+<p>Next, in <strong>step 7</strong>, the Action will perform the actual work involved.  It
+must find the Cache if it already exists or create a new Cache.  This basically
+involves reading and writing an entry in the SQLite database.  The result is
+a unique CacheId.</p>
+
+<p><strong>Steps 8 to 11</strong> essentially just return the CacheId back to the actor layer.</p>
+
+<p>If this was the last Action, then the Context is released in <strong>step 10</strong>.</p>
+
+<p>At this point we need to create a new parent actor for the CacheId.  This Cache
+actor will be passed back to the child process where it gets a child actor.
+Finally a Cache DOM object is constructed and used to resolve the Promise
+returned to the JS script in first step.  All of this occurs in <strong>steps 12 to
+17</strong>.</p>
+
+<p>On the off chance you’re still reading this section, the script next performs
+a <code class="highlighter-rouge">put()</code> on the cache:</p>
+
+<p><img class="center-block" src="/images/cache-put-sequence.png" /></p>
+
+<p>This trace looks similar to the last one, with the main difference occurring in the
+Action on the right.  While this is true, its important to note that the
+IPC serialization in this case includes a data stream for the Response body.
+So we might be creating a CrossProcessPipe actor to copy data across in chunks.</p>
+
+<p>With that in mind the Action needs to do the following:</p>
+
+<ul>
+  <li>Stream body data to files on disk.  This happens asynchronously on the IO
+thread.  The Action and the Context are kept alive this entire time.</li>
+  <li>Update the SQLite database to reflect the new Request/Response pair with
+a file name pointer to the body.</li>
+</ul>
+
+<p>All of the steps back to the child process are essentially just there to indicate
+completion.  The <code class="highlighter-rouge">put()</code> operation resolves undefined in the success case.</p>
+
+<p>Finally the script can use <code class="highlighter-rouge">match()</code> to read the data back out of the Cache:</p>
+
+<p><img class="center-block" src="/images/cache-match-sequence.png" /></p>
+
+<p>In this trace the Action must first query the SQLite tables to determine if
+the Request exists in the Cache.  If it does, then it opens a stream to the
+body file.</p>
+
+<p>Its important to note, again, that this is just opening a stream.  The Action
+is only accessing the file system directory structure and opening a file
+descriptor to the body.  Its not actually reading any of the data for the
+body yet.</p>
+
+<p>Once the matched Response data and body file stream are passed back to the
+parent actor, we must create an extra actor for the stream.  This actor is
+then passed back to the child process and used to create a ReadStream.</p>
+
+<p>A ReadStream is a wrapper around the body file stream.  This wrapper will
+send a message back to the parent whenever the stream is closed.  In addition,
+it allows the Manager to signal the stream that a shutdown is occurring and
+the stream should be immediately closed.</p>
+
+<p>This extra call back to the parent process on close is necessary to allow
+the Manager to reference track open streams and hold the Context open until
+all the streams are closed.</p>
+
+<p>The body file stream itself is serialized back to the child process by
+dup()’in the file descriptor opened by the Action.</p>
+
+<p>Ultimately the body file data is read from the stream when the content script
+calls <code class="highlighter-rouge">Response.text()</code> or one of the other body consumption methods.</p>
+
+<h1 id="todo">TODO</h1>
+<p>Of course, there is still a lot to do.  While we are going to try to land the
+current implementation on mozilla-central, a number of issues will need to
+be resolved in the near future.</p>
+
+<ol>
+  <li>SQLite maintenance must be implemented.  As I mentioned above, I have a
+plan for how this will work, but it has not been written yet.</li>
+  <li>Stress testing must be performed to fine tune the SQLite schema and
+configuration.</li>
+  <li>Files should be de-duplicated within a single origin’s CacheStorage.  This
+will be important for efficiently supporting some expected uses of the
+Cache API.  (De-duplication beyond the same origin will require expanded
+support from the QuotaManager and is unlikely to occur in the near future.)</li>
+  <li>Request and Response <code class="highlighter-rouge">clone()</code> must be improved.  Currently a <code class="highlighter-rouge">clone()</code>
+call results in the body data being copied.  In general we should be able
+to avoid almost all copying here, but it will require some work.  See
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1100398">bug 1100398</a> for more details.</li>
+  <li>Telemetry should be added so that we can understand how the Cache is
+being used.  This will be important for improving the performance of the
+Cache over time.</li>
+</ol>
+
+<h1 id="conclusion">Conclusion</h1>
+<p>While the Cache implementation is sure to change, this is where we are today.
+We want to get Cache and the other Service Worker bits off of our project branch
+and into mozilla-central as soon as possible so other people can start testing
+with them.  Reviewing the Cache implementation is an important step in that
+process.</p>
+
+<p>If you would like to follow along please see <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=940273">bug 940273</a>.  As always, feedback
+is welcome by email or on <a href="https://twitter.com/wanderview">twitter</a>.</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Composable Object Streams]]></title>
+    <link href="http://localhost:4000/blog/2013/03/01/composable-object-streams.html"/>
+    <updated>2013-03-01T00:17:00-05:00</updated>
+    <id>http://localhost:4000/blog/2013/03/01/composable-object-streams</id>
+    <content type="html"><![CDATA[<p>In my <a href="/blog/2013/02/03/writing-node-dot-js-unit-tests-with-recorded-network-data/">last post</a> I introduced the <a href="https://github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> module to help test
+against real, captured network data.  I was rather happy with
+how that module turned out, so I decided to mock out <a href="http://nodejs.org/api/dgram.html">dgram</a> next in order
+to support testing UDP packets as well.</p>
+
+<!-- more -->
+
+<p>I almost immediately ran into a few issues:</p>
+
+<ol>
+  <li>The <code class="highlighter-rouge">dgram</code> module does not implement a streams2 <a href="http://nodejs.org/docs/v0.9.10/api/stream.html#stream_class_stream_duplex">duplex</a> API.  It
+still provides an old-style “spew-stream”.</li>
+  <li>I wanted to share code with <code class="highlighter-rouge">pcap-socket</code> for parsing ethernet
+frames and IP headers.</li>
+  <li>I also wanted to implement some missing features such IP fragment
+reassembly.  These types of features require operating across multiple
+packets and therefore fit the streaming model better than the
+simple utility function approach.</li>
+</ol>
+
+<p>Using the basic rebuffering byte streams provided by the new streams2 API
+seemed problematic.  For one, UDP packets are distinct and shouldn’t be
+summarily rebuffered.  Also, I needed a way to extract packet header
+information and pass it along with the byte stream.</p>
+
+<p>I was considering a couple ways to proceed when <a href="https://github.com/Raynos">Raynos</a> was kind enough
+to implement <a href="https://github.com/joyent/node/commit/444bbd4fa7315423a6b55aba0e0c12ea6534b2cb">object streams</a>.</p>
+
+<p>This seemed to solve a lot of my problems.  I could now turn off rebuffering
+and I could pass arbitrary objects around.</p>
+
+<p>The new object mode, however, did create one new issue.</p>
+
+<p>Now that streams are not just ordered bytes, how can I write general purpose
+composable streams other people could easily use?  If every person uses their
+own object structure then it could be very difficult to put together separate
+stream modules in a useful way.</p>
+
+<p>Over time I came up with an approach that seemed to work well for the network
+protocol domain.  Essentially, I structured messages like this:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">msg</span> <span class="o">=</span> <span class="p">{</span>
+  <span class="na">data</span><span class="p">:</span> <span class="nx">buf</span><span class="p">,</span>
+  <span class="na">offset</span><span class="p">:</span> <span class="mi">14</span><span class="p">,</span>
+  <span class="na">ether</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">src</span><span class="p">:</span> <span class="s1">'01:02:03:04:05:06'</span><span class="p">,</span>
+    <span class="na">dst</span><span class="p">:</span> <span class="s1">'06:05:04:03:02:01'</span><span class="p">,</span>
+    <span class="na">type</span><span class="p">:</span> <span class="s1">'ip'</span><span class="p">,</span>
+    <span class="na">length</span><span class="p">:</span> <span class="mi">14</span>
+  <span class="p">}</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>Each message is the combination of some binary <code class="highlighter-rouge">Buffer</code> data and additional
+meta-data.  In this example I have an ethernet frame that’s been parsed off
+the start of the <code class="highlighter-rouge">msg.data</code> buffer.</p>
+
+<p>After a full parsing chain:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">ipstream</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">IpStream</span><span class="p">();</span>
+<span class="kd">var</span> <span class="nx">udpstream</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">UdpStream</span><span class="p">();</span>
+<span class="nx">ipstream</span><span class="p">.</span><span class="nx">pipe</span><span class="p">(</span><span class="nx">udpstream</span><span class="p">);</span>
+
+<span class="nx">ipstream</span><span class="p">.</span><span class="nx">write</span><span class="p">(</span><span class="nx">msg</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">out</span> <span class="o">=</span> <span class="nx">udpstream</span><span class="p">.</span><span class="nx">read</span><span class="p">();</span>
+</code></pre></div></div>
+
+<p>The resulting <code class="highlighter-rouge">out</code> message might look like this:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">out</span> <span class="o">=</span> <span class="p">{</span>
+  <span class="na">data</span><span class="p">:</span> <span class="nx">buf</span><span class="p">,</span>
+  <span class="na">offset</span><span class="p">:</span> <span class="mi">42</span><span class="p">,</span>
+  <span class="na">ether</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">src</span><span class="p">:</span> <span class="s1">'01:02:03:04:05:06'</span><span class="p">,</span>
+    <span class="na">dst</span><span class="p">:</span> <span class="s1">'06:05:04:03:02:01'</span><span class="p">,</span>
+    <span class="na">type</span><span class="p">:</span> <span class="s1">'ip'</span><span class="p">,</span>
+    <span class="na">length</span><span class="p">:</span> <span class="mi">14</span>
+  <span class="p">},</span>
+  <span class="na">ip</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">src</span><span class="p">:</span> <span class="s1">'1.1.1.1'</span><span class="p">,</span>
+    <span class="na">dst</span><span class="p">:</span> <span class="s1">'2.2.2.2'</span><span class="p">,</span>
+    <span class="na">flags</span><span class="p">:</span> <span class="p">{</span>
+      <span class="na">df</span><span class="p">:</span> <span class="kc">false</span><span class="p">,</span>
+      <span class="na">mf</span><span class="p">:</span> <span class="kc">false</span>
+    <span class="p">},</span>
+    <span class="na">protocol</span><span class="p">:</span> <span class="s1">'udp'</span><span class="p">,</span>
+    <span class="na">protocolCode</span><span class="p">:</span> <span class="mi">17</span><span class="p">,</span>
+    <span class="na">offset</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="na">id</span><span class="p">:</span> <span class="mi">12345</span><span class="p">,</span>
+    <span class="na">length</span><span class="p">:</span> <span class="mi">20</span>
+  <span class="p">},</span>
+  <span class="na">udp</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">srcPort</span><span class="p">:</span> <span class="mi">5432</span><span class="p">,</span>
+    <span class="na">dstPort</span><span class="p">:</span> <span class="mi">52</span><span class="p">,</span>
+    <span class="na">dataLength</span><span class="p">:</span> <span class="mi">500</span><span class="p">,</span>
+    <span class="nx">length</span> <span class="mi">8</span>
+  <span class="p">}</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>This lets us inspect all of the extracted information at the end of the
+processing pipeline.</p>
+
+<p>This approach also lets different stream implementations work together.  For
+example, the <code class="highlighter-rouge">IpStream</code> can inspect the <code class="highlighter-rouge">msg.ether.type</code> property provided
+by <code class="highlighter-rouge">EtherStream</code> to see if <code class="highlighter-rouge">msg</code> represents an IP packet or not.</p>
+
+<p>This approach also allows streams to avoid stepping on each others toes.  Both
+the <code class="highlighter-rouge">EtherStream</code> and <code class="highlighter-rouge">IpStream</code> produce <code class="highlighter-rouge">src</code> properties, but they don’t
+conflict because they are namespaced under <code class="highlighter-rouge">ether</code> and <code class="highlighter-rouge">ip</code>.</p>
+
+<p>To help solicit feedback on this approach I started a <a href="https://gist.github.com/wanderview/5062495">gist</a> that outlines
+the approach.  If you’re interested or have an opinion please check it out.
+I’d love to know if there is a better, more standard way to build these sorts
+of object streams.</p>
+
+<p>Oh, and I did finally implement the <code class="highlighter-rouge">dgram</code> mock object.  See the
+<a href="https://github.com/wanderview/node-pcap-dgram#readme">pcap-dgram</a> module for examples.  Both it and <code class="highlighter-rouge">pcap-socket</code> are built on
+top of the new <a href="https://github.com/wanderview/node-ether-stream#readme">ether-stream</a> and <a href="https://github.com/wanderview/node-ip-stream#readme">ip-stream</a>.  And <code class="highlighter-rouge">ip-stream</code> does
+indeed now support <a href="https://github.com/wanderview/node-ip-stream/commit/8bfc084b3222116ce92c71c2897547ec47e341e7">fragmentation reassembly</a>.</p>
+
+<p>All of these composable object streams are implemented using a
+new base class module called <a href="https://github.com/wanderview/node-object-transform#readme">object-transform</a>.  It makes it fairly easy
+to write these kinds of transformations.</p>
+
+<p>Of course, this still leaves me with my first issue.  The <a href="http://nodejs.org/api/dgram.html">dgram</a> core
+module still does not provide a streams2 API.  If this message structure makes
+sense, however, it should now be possible to provide this API without losing
+the <code class="highlighter-rouge">rinfo</code> meta-data provided in the current <code class="highlighter-rouge">'message'</code> event.  UDP wouldn’t
+benefit from the back pressure improvements, but this would allow <code class="highlighter-rouge">dgram</code> to
+easily <code class="highlighter-rouge">pipe()</code> into other composable stream modules.</p>
+
+<p>Again, if you an opinion on if this is useful or how it can be improved, please
+comment on the <a href="https://gist.github.com/wanderview/5062495">gist</a> or send me a <a href="http://twitter.com/wanderview">tweet</a>.</p>
+
+<p>Thank you!</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Writing Node.js Unit Tests With Recorded Network Data]]></title>
+    <link href="http://localhost:4000/blog/2013/02/03/writing-node-dot-js-unit-tests-with-recorded-network-data.html"/>
+    <updated>2013-02-03T22:59:00-05:00</updated>
+    <id>http://localhost:4000/blog/2013/02/03/writing-node-dot-js-unit-tests-with-recorded-network-data</id>
+    <content type="html"><![CDATA[<p>Automated unit tests are a wonderful thing.  They help give you the
+confidence to make difficult changes and are your first line of
+defense against regressions.  Unfortunately, however, unit tests
+typically only validate code against the same expectations and
+pre-conceived notions we used to write the code in the first place.
+All to often we later find our expectations do not match reality.</p>
+
+<p>One way to minimize this problem is to write your tests using real world
+data.  In the case of network code, this can be done by recording traffic
+to a <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file and then playing it back as the input to your test.</p>
+
+<p>In this post I will discuss how to do this in <a href="http://nodejs.org">node.js</a> using the
+<a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> module.</p>
+
+<!-- more -->
+
+<h2 id="module-overview">Module Overview</h2>
+
+<p>There are currently a couple of options for accessing <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> data in
+<a href="http://nodejs.org">node.js</a>:</p>
+
+<ul>
+  <li>The <a href="https://github.com/mranney/node_pcap#readme">pcap module</a> provides a wrapper around the native libpcap library.</li>
+  <li>The <a href="https://github.com/nearinfinity/node-pcap-parser#readme">pcap-parser</a> module provides a pure JavaScript implementation.</li>
+</ul>
+
+<p>In both cases, however, the data is provided in a raw form which still
+includes the Ethernet frame, the IP header, and the TCP header.  The code
+to be tested, however, probably expects data as provided by <a href="http://nodejs.org/api/net.html#net_class_net_socket">net.Socket</a>
+with all of these headers stripped.  This makes it awkward and tedious to
+write tests against <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> files.</p>
+
+<p>To address this problem I’ve written a socket compatibility wrapper around
+<a href="https://github.com/nearinfinity/node-pcap-parser#readme">pcap-parser</a> called <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a>.  This wrapper implements just enough
+logic to parse and strip the network headers.  Data is then provided
+to your test code using the same API provided by <a href="http://nodejs.org/api/net.html#net_class_net_socket">net.Socket</a>.</p>
+
+<p>Creating a <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> requires the path to the <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file and
+an IP address:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">PcapSocket</span> <span class="o">=</span> <span class="nx">require</span> <span class="p">(</span><span class="s1">'pcap-socket'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">file</span> <span class="o">=</span> <span class="nx">path</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span> <span class="s1">'data'</span><span class="p">,</span> <span class="s1">'http-session-winxp.pcap'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">psocket</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">PcapSocket</span><span class="p">(</span><span class="nx">file</span><span class="p">,</span> <span class="s1">'10.0.1.6'</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>The IP address is required in order to tell <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> which end of
+the recorded session you would like to pretend to be.  Any data sent to this
+address in your file will be treated as data to be delivered by the socket.</p>
+
+<p>This handles the incoming side, but what about writing data out?</p>
+
+<p>In this case the packets originating for your configured address in the
+<a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file will be ignored.  We are less interested in how the real
+server responded during your recording than how the code under test responds.</p>
+
+<p>Therefore, data written to the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> gets placed in a separate
+<code class="highlighter-rouge">output</code> stream.  This lets you write tests that examine and validate
+responses for correctness.</p>
+
+<p>This might be more clear with some pictures.</p>
+
+<p>The following diagram represents the logical flow of data using a real
+<a href="http://nodejs.org/api/net.html#net_class_net_socket">net.Socket</a> object.</p>
+
+<p><img class="center-block" src="/images/net-socket-simple.png" /></p>
+
+<p>In contrast, the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> configuration looks like this:</p>
+
+<p><img class="center-block" src="/images/pcap-socket-diagram.png" /></p>
+
+<p>Here is an example of using the <code class="highlighter-rouge">output</code> stream to validate your code’s
+response.  Note, this uses the new streams2 API, but you can also use
+the more traditional <code class="highlighter-rouge">on('data')</code> API as well.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'readable'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+  <span class="kd">var</span> <span class="nx">chunk</span> <span class="o">=</span> <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">156</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="nx">chunk</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">str</span> <span class="o">=</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">toString</span><span class="p">();</span>
+
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/HTTP</span><span class="se">\/</span><span class="sr">1.1 200 OK/</span><span class="p">));</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/Content-Type: text</span><span class="se">\/</span><span class="sr">plain/</span><span class="p">));</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="k">new</span> <span class="nb">RegExp</span><span class="p">(</span><span class="nx">msg</span><span class="p">)));</span>
+
+    <span class="nx">test</span><span class="p">.</span><span class="nx">done</span><span class="p">();</span>
+  <span class="p">}</span>
+<span class="p">});</span>
+<span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+</code></pre></div></div>
+
+<h2 id="record-your-network-data">Record Your Network Data</h2>
+
+<p>Now that we’ve covered the basic <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> concepts, the next step is to
+record some network data in the <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file format.  If you are already
+comfortable with network monitoring tools, you may wish to skip to the next
+section.</p>
+
+<p>The easiest way to do this is either with the UNIX command line tool
+<a href="http://www.tcpdump.org/">tcpdump</a> or with the graphical <a href="http://www.wireshark.org/">wireshark</a> application.  In either
+case, you first need to set up the monitoring tool with a filter matching
+the type of data you want to collect.</p>
+
+<p>For example, in <a href="http://www.tcpdump.org/">tcpdump</a> you might do the following to record HTTP
+sessions from a particular host.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>tcpdump <span class="nt">-i</span> en1 <span class="nt">-w</span> data.pcap port 80 and host 10.0.1.12
+</code></pre></div></div>
+
+<p>Note that <code class="highlighter-rouge">sudo</code> is required since putting the network interface
+into promiscuous mode requires administrator privileges.  Also, you
+typically must specify the correct network interface using the <code class="highlighter-rouge">-i</code>
+option.  Here I am specifying my MacBook’s wireless interface.</p>
+
+<p>Once the filter is running, perform whatever actions you need to in
+order to trigger the network traffic.  This could be using the browser to
+hit a web page, executing a query against a database, etc.</p>
+
+<p>Make sure to use save the results to a file using the <code class="highlighter-rouge">-w data.pcap</code>
+option in <a href="http://www.tcpdump.org/">tcpdump</a> or <code class="highlighter-rouge">Save As</code> in <a href="http://www.wireshark.org/">wireshark</a>..  You can then replay
+the data at any time with this command:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>tcpdump <span class="nt">-r</span> data.pcap
+</code></pre></div></div>
+
+<p>If you end up with more data in your file then you would like, you can
+specify a more strict filter and write the data out again to a second
+file.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>tcpdump <span class="nt">-r</span> data.pcap <span class="nt">-w</span> data2.pcap host 10.0.1.6
+</code></pre></div></div>
+
+<p>Ideally you should aim to have the minimum amount of data in your file
+required to represent a real-world instance of the situation you want
+to test.</p>
+
+<h2 id="write-your-unit-test">Write Your Unit Test</h2>
+
+<p>Your unit test will typically need a few standard sections:</p>
+
+<ul>
+  <li>Create the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> from the <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file.</li>
+  <li>Write some response validation code that reads from the <code class="highlighter-rouge">output</code> stream.</li>
+  <li>Pass the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> to your code in some way.  Hopefully there
+is an easy way to introduce the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> in place of <a href="http://nodejs.org/api/net.html#net_class_net_socket">net.Socket</a>.
+You may need to get creative here or refactor the code to support this.</li>
+</ul>
+
+<p>As an example, lets test everyone’s first <a href="http://nodejs.org">node.js</a> program; the simple
+hello world web server:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// Setup an HTTP server to test</span>
+<span class="kd">var</span> <span class="nx">server</span> <span class="o">=</span> <span class="nx">http</span><span class="p">.</span><span class="nx">createServer</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">req</span><span class="p">,</span> <span class="nx">res</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">res</span><span class="p">.</span><span class="nx">writeHead</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="p">{</span><span class="s1">'Content-Type'</span><span class="p">:</span> <span class="s1">'text/plain'</span><span class="p">});</span>
+  <span class="nx">res</span><span class="p">.</span><span class="nx">end</span><span class="p">(</span><span class="s1">'Hello World</span><span class="err">\</span><span class="s1">n'</span><span class="p">);</span>
+<span class="p">});</span>
+</code></pre></div></div>
+
+<p>Most of this test is actually shown in snippets above, but I will repeat
+them here for clarity.</p>
+
+<p>First, create the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a>:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">file</span> <span class="o">=</span> <span class="nx">path</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span> <span class="s1">'data'</span><span class="p">,</span> <span class="s1">'http-session-winxp.pcap'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">psocket</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">PcapSocket</span><span class="p">(</span><span class="nx">file</span><span class="p">,</span> <span class="s1">'10.0.1.6'</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Here the <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a> file is stored in the file
+<code class="highlighter-rouge">'./data/http-session-winxp.pcap'</code>.  I used <code class="highlighter-rouge">tcpdump</code> to examine the file
+and determine that the web server was bound to the IP address <code class="highlighter-rouge">10.0.1.6</code>.</p>
+
+<p>Next, write code that validates the response that should occur.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'readable'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+  <span class="kd">var</span> <span class="nx">chunk</span> <span class="o">=</span> <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">156</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="nx">chunk</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">str</span> <span class="o">=</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">toString</span><span class="p">();</span>
+
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/HTTP</span><span class="se">\/</span><span class="sr">1.1 200 OK/</span><span class="p">));</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/Content-Type: text</span><span class="se">\/</span><span class="sr">plain/</span><span class="p">));</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="k">new</span> <span class="nb">RegExp</span><span class="p">(</span><span class="nx">msg</span><span class="p">)));</span>
+
+    <span class="nx">test</span><span class="p">.</span><span class="nx">done</span><span class="p">();</span>
+  <span class="p">}</span>
+<span class="p">});</span>
+<span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Finally, to supply the <a href="https://www.github.com/wanderview/node-pcap-socket#readme">pcap-socket</a> to the HTTP server we take advantage
+of the fact that it internally listens for the <code class="highlighter-rouge">'connection'</code> event in order
+to begin processing a new session.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">server</span><span class="p">.</span><span class="nx">emit</span><span class="p">(</span><span class="s1">'connection'</span><span class="p">,</span> <span class="nx">psocket</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>All together the test looks like this:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">PcapSocket</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'pcap-socket'</span><span class="p">);</span>
+
+<span class="kd">var</span> <span class="nx">http</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'http'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">path</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'path'</span><span class="p">);</span>
+
+<span class="nx">module</span><span class="p">.</span><span class="nx">exports</span><span class="p">.</span><span class="nx">http</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">test</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">test</span><span class="p">.</span><span class="nx">expect</span><span class="p">(</span><span class="mi">3</span><span class="p">);</span>
+
+  <span class="kd">var</span> <span class="nx">msg</span> <span class="o">=</span> <span class="s1">'Hello World</span><span class="err">\</span><span class="s1">n'</span><span class="p">;</span>
+
+  <span class="c1">// Setup an HTTP server to test</span>
+  <span class="kd">var</span> <span class="nx">server</span> <span class="o">=</span> <span class="nx">http</span><span class="p">.</span><span class="nx">createServer</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">req</span><span class="p">,</span> <span class="nx">res</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">res</span><span class="p">.</span><span class="nx">writeHead</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="p">{</span><span class="s1">'Content-Type'</span><span class="p">:</span> <span class="s1">'text/plain'</span><span class="p">});</span>
+    <span class="nx">res</span><span class="p">.</span><span class="nx">end</span><span class="p">(</span><span class="nx">msg</span><span class="p">);</span>
+  <span class="p">});</span>
+
+  <span class="c1">// Configure the pcap socket to provide real, recorded network data</span>
+  <span class="kd">var</span> <span class="nx">file</span> <span class="o">=</span> <span class="nx">path</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span> <span class="s1">'data'</span><span class="p">,</span> <span class="s1">'http-session-winxp.pcap'</span><span class="p">);</span>
+  <span class="kd">var</span> <span class="nx">psocket</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">PcapSocket</span><span class="p">(</span><span class="nx">file</span><span class="p">,</span> <span class="s1">'10.0.1.6'</span><span class="p">);</span>
+
+  <span class="c1">// When the server sends back a response, validate that it makes sense</span>
+  <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'readable'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+    <span class="c1">// Read the full response; length determined by looking at pcap file</span>
+    <span class="kd">var</span> <span class="nx">chunk</span> <span class="o">=</span> <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">156</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">chunk</span><span class="p">)</span> <span class="p">{</span>
+      <span class="kd">var</span> <span class="nx">str</span> <span class="o">=</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">toString</span><span class="p">();</span>
+
+      <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/HTTP</span><span class="se">\/</span><span class="sr">1.1 200 OK/</span><span class="p">));</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="sr">/Content-Type: text</span><span class="se">\/</span><span class="sr">plain/</span><span class="p">));</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">ok</span><span class="p">(</span><span class="nx">str</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="k">new</span> <span class="nb">RegExp</span><span class="p">(</span><span class="nx">msg</span><span class="p">)));</span>
+
+      <span class="nx">test</span><span class="p">.</span><span class="nx">done</span><span class="p">();</span>
+    <span class="p">}</span>
+  <span class="p">});</span>
+  <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+
+  <span class="c1">// Supply the pcap socket to the HTTP server as a new connection</span>
+  <span class="nx">server</span><span class="p">.</span><span class="nx">emit</span><span class="p">(</span><span class="s1">'connection'</span><span class="p">,</span> <span class="nx">psocket</span><span class="p">);</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<h2 id="a-more-complex-example">A More Complex Example</h2>
+
+<p>The HTTP example is a good start, but ideally it would be nice to test a
+more complex case that spans a longer TCP session.</p>
+
+<p>The following code tests the <a href="https://github.com/wanderview/node-netbios-session#readme">netbios-session</a> module against a <a href="http://en.wikipedia.org/wiki/Pcap">pcap</a>
+recording between my scanner and a Windows XP virtual machine.  It validates
+the request, positive response, and subsequent message stream.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">Session</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'../session'</span><span class="p">);</span>
+
+<span class="kd">var</span> <span class="nx">NBName</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'netbios-name'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">PcapSocket</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'pcap-socket'</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">path</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'path'</span><span class="p">);</span>
+
+<span class="kd">var</span> <span class="nx">FILE</span> <span class="o">=</span> <span class="nx">path</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span> <span class="s1">'data'</span><span class="p">,</span> <span class="s1">'netbios-ssn-full-scanner-winxp.pcap'</span><span class="p">);</span>
+<span class="nx">module</span><span class="p">.</span><span class="nx">exports</span><span class="p">.</span><span class="nx">server</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">test</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">test</span><span class="p">.</span><span class="nx">expect</span><span class="p">(</span><span class="mi">7</span><span class="p">);</span>
+  <span class="kd">var</span> <span class="nx">psocket</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">PcapSocket</span><span class="p">(</span><span class="nx">FILE</span><span class="p">,</span> <span class="s1">'10.0.1.12'</span><span class="p">);</span>
+
+  <span class="kd">var</span> <span class="nx">session</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">Session</span><span class="p">();</span>
+
+  <span class="c1">// validate expected request</span>
+  <span class="nx">session</span><span class="p">.</span><span class="nx">attach</span><span class="p">(</span><span class="nx">psocket</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">error</span><span class="p">,</span> <span class="nx">request</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span> <span class="nx">error</span><span class="p">);</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="s1">'VMWINXP'</span><span class="p">,</span> <span class="nx">request</span><span class="p">.</span><span class="nx">callTo</span><span class="p">.</span><span class="nx">name</span><span class="p">);</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="s1">'PRINTER'</span><span class="p">,</span> <span class="nx">request</span><span class="p">.</span><span class="nx">callFrom</span><span class="p">.</span><span class="nx">name</span><span class="p">);</span>
+    <span class="nx">request</span><span class="p">.</span><span class="nx">accept</span><span class="p">();</span>
+  <span class="p">});</span>
+
+  <span class="c1">// validate that we receive all the expected bytes in the session</span>
+  <span class="kd">var</span> <span class="nx">length</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="nx">session</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'message'</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">msg</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">length</span> <span class="o">+=</span> <span class="nx">msg</span><span class="p">.</span><span class="nx">length</span><span class="p">;</span>
+  <span class="p">});</span>
+
+  <span class="c1">// validate positive response</span>
+  <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'readable'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">chunk</span> <span class="o">=</span> <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">4</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">chunk</span><span class="p">)</span> <span class="p">{</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="mh">0x82</span><span class="p">,</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">readUInt8</span><span class="p">(</span><span class="mi">0</span><span class="p">));</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">readUInt8</span><span class="p">(</span><span class="mi">1</span><span class="p">));</span>
+      <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nx">chunk</span><span class="p">.</span><span class="nx">readUInt16BE</span><span class="p">(</span><span class="mi">2</span><span class="p">));</span>
+    <span class="p">}</span>
+  <span class="p">});</span>
+  <span class="nx">psocket</span><span class="p">.</span><span class="nx">output</span><span class="p">.</span><span class="nx">read</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+
+  <span class="c1">// validate session completes properly</span>
+  <span class="nx">session</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'end'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">equal</span><span class="p">(</span><span class="mi">438</span><span class="p">,</span> <span class="nx">length</span><span class="p">);</span>
+    <span class="nx">test</span><span class="p">.</span><span class="nx">done</span><span class="p">();</span>
+  <span class="p">});</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Making Progress on Personal Projects]]></title>
+    <link href="http://localhost:4000/blog/2013/01/27/making-progress-on-personal-projects.html"/>
+    <updated>2013-01-27T21:43:00-05:00</updated>
+    <id>http://localhost:4000/blog/2013/01/27/making-progress-on-personal-projects</id>
+    <content type="html"><![CDATA[<p>Sometimes I wonder how many people consider personal projects, but never
+even get started because they feel they don’t have the time?  How many amazing
+and interesting ideas lie unrealized due to day-to-day commitments?</p>
+
+<!-- more -->
+
+<p>While my <a href="/blog/2013/01/13/xerox-plus-apple-equals-equals-equals-node-dot-js/">project</a> is neither amazing nor all that interesting, I too spent
+a period of time thinking I just didn’t have the time to work on it.  My wife
+and I happily welcomed our daughter into this world just last September.  Ever
+since, our lives have been a whirlwind of activity that is very rewarding, but
+also leaves us exhausted at the end of the night.  Clearly I could not take on
+a new endeavor now.</p>
+
+<p>I began thinking, however, about something I heard <a href="http://www.robertegger.org/">Robert Egger</a> say during
+a talk at Georgetown.  He has been a local fixture in the DC non-profit
+community for years through his <a href="http://www.dccentralkitchen.org/">DC Central Kitchen</a>.  He spoke about
+effecting change through “relentless incrementalism”.  Every day do a little
+bit better.</p>
+
+<p>While my project is not as ambitious as his, I thought this might help me
+get started.  To that end, I came up with the following rule for myself:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Make at least one productive commit each night.  This commit does not need
+to be large or substantial.  Even something as small as cleaning up stale
+comments or the TODO list is adequate.
+</code></pre></div></div>
+
+<p>On the face of it, this may seem like a trivial and insignificant rule.
+After all, you’re not going to make much progress tweaking comments for days
+on end.</p>
+
+<p>My experience, however, has been that this rule is just the right amount of
+motivation to get me to open the editor at the end of a long day.  Then,
+once I’m in the code, I will typically end up working on a larger feature
+instead.  My fifteen-minute commit turns into a two-hour coding session that
+makes significant progress.</p>
+
+<p>So far, I feel this has been quite successful for me.  Looking at my local
+<code class="highlighter-rouge">git log</code>, I made the initial commit on November 17, 2012.  For over two
+months now I’ve made slow, but real progress each day.</p>
+
+<p>Of course, has spending all this time writing code at night increased my
+stress or taken away from my family time?</p>
+
+<p>After thinking about it, I don’t believe so.  For the most part I work at
+night after both my wife and daughter are asleep.  If anything, it has
+replaced my time spent watching reruns of Buffy the Vampire Slayer and playing
+Diablo 3.</p>
+
+<p>In terms of stress, I’ve actually found the personal project to be rather
+energizing.  This should not be surprising given the <a href="http://hbr.org/2010/01/the-hbr-list-breakthrough-ideas-for-2010/ar/1">research</a> that
+creative workers feel the most satisfaction from a sense of progress.  Daniel
+Pink also does an excellent job <a href="http://www.thersa.org/events/rsaanimate/animate/rsa-animate-drive">describing this effect</a> in his book
+<a href="http://www.danpink.com/books/drive">Drive</a>.</p>
+
+<p>The feeling that I’ve accomplished something far outweighs the temporary
+entertainment of TV or the false treadmill of most video games.</p>
+
+<p>So the next time you feel like you don’t have the time for that cool project
+you want to build, consider just making one small commit each night.  You’ll
+be surprised how far it can take you.</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Naming the Project: FileShift]]></title>
+    <link href="http://localhost:4000/blog/2013/01/22/naming-the-project-fileshift.html"/>
+    <updated>2013-01-22T21:13:00-05:00</updated>
+    <id>http://localhost:4000/blog/2013/01/22/naming-the-project-fileshift</id>
+    <content type="html"><![CDATA[<!-- more -->
+
+<p>My <a href="/blog/2013/01/20/working-with-netbios-in-node-dot-js/">last post</a> described some basic NetBIOS operations using <a href="http://nodejs.org">node.js</a>.
+This was the first step towards my <a href="/blog/2013/01/13/xerox-plus-apple-equals-equals-equals-node-dot-js/">larger project goal</a> of integrating my
+scanner with <a href="http://dropbox.com">DropBox</a>.  At the end of the post, however, I realized I
+didn’t have a good place to keep that final script pulling all my <a href="http://npmjs.org">npm</a>
+modules together.</p>
+
+<p>To resolve this, I’ve decided to go ahead and give the overall project a
+GitHub repository.  As a side benefit, the project also has a name besides
+“the project”.</p>
+
+<p>From now on it will be called <a href="http://www.github.com/wanderview/fileshift">FileShift</a>.</p>
+
+<p>While I plan to build out the underlying infrastructure in separate <a href="http://npmjs.org">npm</a>
+modules, the core logic will end up here.  While its obviously very early in
+the effort, ultimately I’d like to see this project support translating
+between as many different file system protocols as possible.</p>
+
+<p>If nothing else, this should keep me busy for a while.</p>
+
+<hr />
+
+<p>The NetBIOS proxy script from my <a href="/blog/2013/01/20/working-with-netbios-in-node-dot-js/">last post</a> can be found <a href="https://github.com/wanderview/fileshift/blob/master/netbios-fwd.js">here</a>.</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Working with NetBIOS in node.js]]></title>
+    <link href="http://localhost:4000/blog/2013/01/20/working-with-netbios-in-node-dot-js.html"/>
+    <updated>2013-01-20T21:29:00-05:00</updated>
+    <id>http://localhost:4000/blog/2013/01/20/working-with-netbios-in-node-dot-js</id>
+    <content type="html"><![CDATA[<p>Lately I’ve been caught in the middle of a <a href="/blog/2013/01/13/xerox-plus-apple-equals-equals-equals-node-dot-js/">dispute between my Xerox scanner and Mac OS X</a>.
+The Mac only wants to use modern versions of SMB to share
+files and is giving the scanner the cold shoulder.  In an attempt to mediate
+this issue I’ve turned to hacking on ancient protocols in <a href="http://nodejs.org">node.js</a>.</p>
+
+<p>So far I’ve tackled <a href="http://tools.ietf.org/rfc/rfc1001.txt">NetBIOS</a> and thought I would share some of the code
+I’ve come up with.</p>
+
+<!-- more -->
+
+<p>The first step to finding or advertising a NetBIOS name is to start up a
+<a href="http://www.github.com/wanderview/node-netbios-name-service#readme">netbios-name-service</a> instance.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">NBService</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'netbios-name-service'</span><span class="p">);</span>
+
+    <span class="kd">var</span> <span class="nx">nameService</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">NBService</span><span class="p">();</span>
+    <span class="nx">nameService</span><span class="p">.</span><span class="nx">start</span><span class="p">(</span><span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+      <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">'NetBIOS name service started'</span><span class="p">);</span>
+    <span class="p">});</span>
+</code></pre></div></div>
+
+<p>Then, if you want to search for a service, like say a printer, you can
+execute the following code.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">NBName</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'netbios-name'</span><span class="p">);</span>
+
+    <span class="kd">var</span> <span class="nx">queryName</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">NBName</span><span class="p">({</span><span class="na">name</span><span class="p">:</span> <span class="s1">'PRINTER'</span><span class="p">});</span>
+    <span class="nx">nameService</span><span class="p">.</span><span class="nx">find</span><span class="p">(</span><span class="nx">queryName</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">error</span><span class="p">,</span> <span class="nx">address</span><span class="p">)</span> <span class="p">{</span>
+      <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">'Found NetBIOS name ['</span> <span class="o">+</span> <span class="nx">queryName</span> <span class="o">+</span> <span class="s1">'] at ['</span> <span class="o">+</span> <span class="nx">address</span> <span class="o">+</span> <span class="s1">']'</span><span class="p">);</span>
+    <span class="p">});</span>
+</code></pre></div></div>
+
+<p>Note, you must use the <a href="http://www.github.com/wanderview/node-netbios-name#readme">netbios-name</a> module in order to properly define
+names in order to search, advertise, or perform other operations.  This module
+provides a simple class that combines the simple NetBIOS name with additional
+information such as the scope ID (aka domain name) and a suffix byte indicating
+the what type of node is being represented.</p>
+
+<p>For the problem at hand, however, I don’t need to search for a name. Instead
+I want to advertise the node.js server via NetBIOS so that the scanner can
+push files to us.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">myName</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">NBName</span><span class="p">({</span><span class="na">name</span><span class="p">:</span> <span class="s1">'XYKON-2'</span><span class="p">});</span>
+    <span class="nx">nameService</span><span class="p">.</span><span class="nx">add</span><span class="p">({</span><span class="na">nbname</span><span class="p">:</span> <span class="nx">myName</span><span class="p">});</span>
+</code></pre></div></div>
+
+<p>This causes the service to monitor UDP port 137 for broadcast queries looking
+for the name <code class="highlighter-rouge">XYKON-2</code>.  If a query occurs, then the service will automatically
+respond with the IP address of the server.</p>
+
+<p>So this allows the scanner to find our server, but what about handling the
+NetBIOS traffic containing the actual file operations?</p>
+
+<p>To deal with this part of the problem we need to use the <a href="http://www.github.com/wanderview/node-netbios-session#readme">netbios-session</a>
+module.  Here is code to receive incoming NetBIOS sessions.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">net</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'net'</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">NBSession</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'netbios-session'</span><span class="p">);</span>
+
+    <span class="kd">var</span> <span class="nx">server</span> <span class="o">=</span> <span class="nx">net</span><span class="p">.</span><span class="nx">createServer</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">socket</span><span class="p">)</span> <span class="p">{</span>
+      <span class="kd">var</span> <span class="nx">sessionIn</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">NBSession</span><span class="p">({</span><span class="na">autoAccept</span><span class="p">:</span> <span class="kc">true</span><span class="p">});</span>
+
+      <span class="nx">sessionIn</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'message'</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">msg</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">'NetBIOS session message with ['</span> <span class="o">+</span> <span class="nx">msg</span><span class="p">.</span><span class="nx">length</span> <span class="o">+</span> <span class="s1">'] bytes'</span><span class="p">);</span>
+      <span class="p">});</span>
+
+      <span class="nx">sessionIn</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'connect'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+        <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">'New NetBIOS session from ['</span> <span class="nx">socket</span><span class="p">.</span><span class="nx">remoteAddress</span> <span class="o">+</span> <span class="s1">']'</span><span class="p">);</span>
+      <span class="p">});</span>
+
+      <span class="nx">sessionIn</span><span class="p">.</span><span class="nx">attach</span><span class="p">(</span><span class="nx">socket</span><span class="p">);</span>
+    <span class="p">});</span>
+
+    <span class="nx">server</span><span class="p">.</span><span class="nx">listen</span><span class="p">(</span><span class="mi">139</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>The <a href="http://www.github.com/wanderview/node-netbios-session#readme">netbios-session</a> class is essentially a wrapper around a TCP socket.
+After calling <code class="highlighter-rouge">new</code> to create a new instance, you need to call <code class="highlighter-rouge">connect()</code>
+or, in this case, <code class="highlighter-rouge">attach()</code>.  Here we are using <code class="highlighter-rouge">attach()</code> to associate the
+session with a new TCP socket.</p>
+
+<p>Once the session is ready to send and receive data it will emit the <code class="highlighter-rouge">'connect'</code>
+event.  At this point <code class="highlighter-rouge">'message'</code> events will occur whenever a message is
+received from the remote peer.  Messages can be sent using the <code class="highlighter-rouge">write()</code>
+method.</p>
+
+<p>So, now that we are receiving data from the scanner, we need to forward this
+on to my Mac’s SMB service listening on port 445.</p>
+
+<p>Now, it turns out, direct SMB connections to port 445 actually use the NetBIOS
+session header to implement message framing, but it skips all of the initial
+session negotiation that normally occurs.</p>
+
+<p>So, to achieve our forwarding we want to create a second session to port
+445 using the <code class="highlighter-rouge">'direct'</code> constructor option.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kd">var</span> <span class="nx">sessionOut</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">Session</span><span class="p">({</span><span class="na">direct</span><span class="p">:</span> <span class="kc">true</span><span class="p">});</span>
+    <span class="nx">sessionOut</span><span class="p">.</span><span class="nx">connect</span><span class="p">(</span><span class="mi">445</span><span class="p">,</span> <span class="s1">'127.0.0.1'</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>After this, we can take messages we receive from <code class="highlighter-rouge">sessionIn</code> events and pass
+them straight to <code class="highlighter-rouge">'sessionOut.write()'</code>.  Since SMB is bidirectional, we also
+need to pass messages in the reverse direction.  With a bit of back-pressure
+logic sprinkled in, this code looks like the following:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="nx">sessionIn</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'message'</span><span class="p">,</span> <span class="nx">_forward</span><span class="p">.</span><span class="nx">bind</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span> <span class="nx">sessionOut</span><span class="p">,</span> <span class="nx">sessionIn</span><span class="p">));</span>
+    <span class="nx">sessionOut</span><span class="p">.</span><span class="nx">on</span><span class="p">(</span><span class="s1">'message'</span><span class="p">,</span> <span class="nx">_forward</span><span class="p">.</span><span class="nx">bind</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span> <span class="nx">sessionIn</span><span class="p">,</span> <span class="nx">sessionOut</span><span class="p">));</span>
+
+    <span class="kd">function</span> <span class="nx">_forward</span><span class="p">(</span><span class="nx">dst</span><span class="p">,</span> <span class="nx">src</span><span class="p">,</span> <span class="nx">msg</span><span class="p">)</span> <span class="p">{</span>
+      <span class="kd">var</span> <span class="nx">flushed</span> <span class="o">=</span> <span class="nx">dst</span><span class="p">.</span><span class="nx">write</span><span class="p">(</span><span class="nx">msg</span><span class="p">);</span>
+      <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">flushed</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">src</span><span class="p">.</span><span class="nx">pause</span><span class="p">();</span>
+        <span class="nx">dst</span><span class="p">.</span><span class="nx">once</span><span class="p">(</span><span class="s1">'drain'</span><span class="p">,</span> <span class="nx">src</span><span class="p">.</span><span class="nx">resume</span><span class="p">.</span><span class="nx">bind</span><span class="p">(</span><span class="nx">src</span><span class="p">));</span>
+      <span class="p">}</span>
+    <span class="p">}</span>
+</code></pre></div></div>
+
+<p>Putting all the pieces together we end up with the following.</p>
+
+<p>``` javascript netbios-fwd.js http://www.github.com/wanderview/fileshift/blob/master/netbios-fwd.js Source File
+‘use strict’;</p>
+
+<p>var NBService = require(‘netbios-name-service’);
+var NBSession = require(‘netbios-session’);
+var NBName = require(‘netbios-name’);
+var net = require(‘net’);</p>
+
+<p>var NAME = ‘XYKON-2’;
+var SCOPE_ID = ‘example.com’;
+var FWD_PORT = 445;
+var FWD_HOST = ‘127.0.0.1’;</p>
+
+<p>var server = net.createServer(function(socket) {
+  var sessionIn = new NBSession({paused: true, autoAccept: true});</p>
+
+<p>sessionIn.on(‘connect’, function() {
+    var sessionOut = new NBSession({direct: true});</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>var endHandler = function() {
+  sessionIn.end();
+  sessionOut.end();
+};
+var errorHandler = function(error) {
+  console.log(error);
+  endHandler();
+};
+
+sessionIn.on('end', endHandler);
+sessionOut.on('end', endHandler);
+
+sessionIn.on('error', errorHandler);
+sessionOut.on('error', errorHandler);
+
+sessionIn.on('message', _forward.bind(null, sessionOut, sessionIn));
+sessionOut.on('message', _forward.bind(null, sessionIn, sessionOut));
+
+sessionOut.on('connect', sessionIn.resume.bind(sessionIn));
+
+sessionOut.connect(FWD_PORT, FWD_HOST);   });
+</code></pre></div></div>
+
+<p>sessionIn.attach(socket);
+});</p>
+
+<p>function _forward(dst, src, msg) {
+  var flushed = dst.write(msg);
+  if (!flushed) {
+    src.pause();
+    dst.once(‘drain’, src.resume.bind(src));
+  }
+}</p>
+
+<p>server.listen(139);</p>
+
+<p>var nameService = new NBService();
+nameService.start(function() {
+  var myName = new NBName({name: NAME, scopeId: SCOPE_ID, suffix: 0x20});
+  nameService.add({nbname: myName});
+});</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+We now have a fully functional proxy server for connecting devices that only
+speak NetBIOS up to modern, direct SMB servers.
+
+Of course, this assumes that the underlying SMB protocol is compatible
+with the destination.  It turns out, the new Mac OS X SMB server has some
+[additional restrictions][].  While I can connect through the proxy using
+`net use` on Windows XP, my scanner still fails to connect.
+
+Looking in the log I found this:
+
+``` bash
+    smbd[91973]: 127.0.0.1 SMB client not supported - Unicode strings are required
+</code></pre></div></div>
+
+<p>Unfortunately this implementation is not even a temporary work around
+for my problem since the scanner doesn’t know how to talk Unicode.</p>
+
+<p>So, it looks like I will be diving into the SMB protocol next so that I can
+intercept the file operations directly in node.</p>
+
+<hr />
+
+<p>All the modules used in this post are available on GitHub and npm:</p>
+
+<ul>
+  <li><a href="http://www.github.com/wanderview/node-netbios-name#readme">netbios-name</a></li>
+  <li><a href="http://www.github.com/wanderview/node-netbios-name-service#readme">netbios-name-service</a></li>
+  <li><a href="http://www.github.com/wanderview/node-netbios-session#readme">netbios-session</a></li>
+</ul>
+
+<p>The end script is available on Github in the <a href="http://www.github.com/wanderview/fileshift">FileShift</a> project.</p>
+
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Time Machine and npm]]></title>
+    <link href="http://localhost:4000/blog/2013/01/15/time-machine-and-npm.html"/>
+    <updated>2013-01-15T22:34:00-05:00</updated>
+    <id>http://localhost:4000/blog/2013/01/15/time-machine-and-npm</id>
+    <content type="html"><![CDATA[<p>Do you develop <a href="http://npmjs.org">npm</a> modules on Mac OS X?  Do you also use Time Machine to
+backup your work?</p>
+
+<p>If you answered yes to both those questions, then there is a good chance you
+will be looking at this dialogue box at some point.</p>
+
+<p><img class="center-block" src="/images/time-machine-failure.png" /></p>
+
+<!-- more -->
+
+<p>I ran into this problem a couple weeks ago.  At first I thought my disk was
+going bad, but all the Disk Utility checks ran fine.  Eventually I ended up
+looking in the log and found this gem:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Jan 15 22:25:37 xykon-2 com.apple.backupd[38289]: Error: (-36) SrcErr:NO Copying /Users/bkelly/Dropbox/devel/node-netbios-session/node_modules/netbios-name/name.js to /Volumes/xykon backup/Backups.backupdb/xykon (2)/2013-01-15-222534.inProgress/9C56F536-65EE-46B1-8EF6-481D98533409/Corsair SSD/Users/bkelly/Dropbox/devel/node-netbios-session/node_modules/netbios-name
+</code></pre></div></div>
+
+<p>Its quite long, but if you look closely you can see that its complaining
+that it can’t copy a file from <code class="highlighter-rouge">/usr/local/lib/node_modules</code> to a
+<code class="highlighter-rouge">node_modules</code> directory in my development area.  In particular, it was
+complaining about code that I recently had been referencing using <code class="highlighter-rouge">npm link</code>.</p>
+
+<p>For those unaware, <a href="https://npmjs.org/doc/link.html">npm link</a> is a handy command that lets you work with
+npm modules locally instead of installing them from the repository online.
+It does this by creating symlinks in <code class="highlighter-rouge">/usr/local/lib/node_modules/</code>
+and the <code class="highlighter-rouge">node_modules</code> directory within a module you are working on.  These
+symlinks point to another local module that may have edits that you have not
+yet published.</p>
+
+<p>Of course, when you are done you may run <code class="highlighter-rouge">npm unlink</code> so that you can
+<code class="highlighter-rouge">npm install</code> the module from the repository again.  This is where the
+problem can occur.</p>
+
+<p>Unfortunately, it appears that Time Machine will sometimes get upset if you
+backup a symlink to a directory, convert the symlink back to a real directory,
+and then try to backup again.</p>
+
+<p>Indeed, after I knew to search for symlink related problems, Google revealed
+that this problem is <a href="http://www.machwerx.com/2012/04/01/time-machine-and-symlinks/">not</a> <a href="http://regex.info/blog/2012-11-20/2144">new</a>.</p>
+
+<p>As mentioned in those other blogs, the solution to the problem is to delete
+the problematic directories, run another backup, and then replace the data.
+Fortunately, npm makes this fairly straightforward to do.</p>
+
+<p>You can also add <code class="highlighter-rouge">/usr/local/lib/node_modules</code> to the Time Machine exclusions
+to try to proactively avoid problems.</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>tmutil addexclusion /usr/local/lib/node_modules
+</code></pre></div></div>
+
+<p>In fact, since the Time Machine exclusion is an attribute on the directory
+itself, its in theory possible to enhance npm or write a wrapper script to
+automatically set the exclusion whenever a new <code class="highlighter-rouge">node_modules</code> directory is
+created.</p>
+
+<p>Of course, you may be saying to yourself that you do this all the time and
+have never had a problem.  Well, just to make things fun, it appears that Time
+Machine only has problems with this situation periodically.  In fact, I tried
+duplicating the error before writing this blog post and was unable to make it
+happen.  Its unclear what other circumstances are required to trigger the
+condition.</p>
+
+<p>So your workflow may work for some time and then seemingly break at random.
+Just be aware that it may be <code class="highlighter-rouge">npm link</code> related and try removing your
+<code class="highlighter-rouge">node_modules</code> before scrapping the backup disk.</p>
+]]></content>
+  </entry>
+  
+  
+  
+  <entry>
+    <title type="html"><![CDATA[Xerox + Apple === Node.js]]></title>
+    <link href="http://localhost:4000/blog/2013/01/13/xerox-plus-apple-equals-equals-equals-node-dot-js.html"/>
+    <updated>2013-01-13T21:02:00-05:00</updated>
+    <id>http://localhost:4000/blog/2013/01/13/xerox-plus-apple-equals-equals-equals-node-dot-js</id>
+    <content type="html"><![CDATA[<p><img class="pull-right" src="/images/xerox6128mfp.jpg" width="275" /></p>
+
+<!-- more -->
+
+<p>In 2010 my wife and I decided to buy a fancy all-in-one, networked, laser
+printer and scanner.  We were tired of the long, onerous tasks of cleaning
+ink cartridges and walking over to the scanner to plug in our laptops.  A
+person can only take so much.</p>
+
+<p>After extensive research we settled on a <a href="http://www.office.xerox.com/multifunction-printer/color-multifunction/phaser-6128mfp/enus.html">Xerox Phaser 6128MFP</a>.  It was
+a color printer with built-in ethernet.  Scanning wrote files directly to a
+shared drive or sent them over email.  It wasn’t cheap, but clearly this was
+the device for us.  After a few minutes on <a href="http://newegg.com">Newegg</a> it was ours.</p>
+
+<p>For nearly a year, all was well.  We scanned.  We printed.  A few times in
+color at first, to prove that it worked, and then mostly in black-and-white
+so as not to be wasteful.</p>
+
+<p><img class="pull-left" src="/images/apple-mac-os-x-lion-10-7.jpg" /></p>
+
+<p>Then in August, 2011 we decided to upgrade our laptops.  Snow Leopard was
+clearly not fierce enough and we needed to move to Lion.  I had waited
+a full month after release to upgrade in an attempt to avoid major problems.
+There were a few complaints online, but overall it seemed like a safe upgrade.</p>
+
+<p>Of course, after installing Lion we ran into problems.  Low and behold, Apple
+had chosen to discontinue support for the NetBIOS session protocol including
+SMB over NetBIOS.  Its as if they thought a <a href="http://tools.ietf.org/rfc/rfc1002.txt">protocol from 1987</a>
+wasn’t good enough any more.  This <a href="https://discussions.apple.com/thread/3208098?start=0&amp;tstart=0">broke networked scanning</a> for many
+people, including us.</p>
+
+<p>No problem, I thought, I’ll just switch to the email delivery method instead.
+I soon discovered, however, that the Xerox firmware only supports sending
+email over unencrypted SMTP.  Besides the obvious security concerns, this
+would not work because both my wife and I use gmail which requires SSL/TSL.</p>
+
+<p>This left us with only a few solutions:</p>
+
+<ol>
+  <li>Try <a href="https://discussions.apple.com/thread/3196311?start=30&amp;tstart=">configuration changes</a> reported to have varying levels of success.</li>
+  <li>Install and configure Samba on both our laptops.</li>
+  <li>Setup a linux server on our home network to server as an SMTP MTA or file
+server.</li>
+  <li>Walk over to the scanner and plug the USB cable into the laptop.</li>
+</ol>
+
+<p><img class="pull-right" src="/images/nodejs-dark.png" width="245" /></p>
+
+<p>After careful consideration I have chosen to try something completely
+different:</p>
+
+<p>I’m now working on a <a href="http://nodejs.org">Node.js</a> server to receive scanned files over
+NetBIOS/SMB and push them up to <a href="http://dropbox.com">Dropbox</a>.</p>
+
+<p>Ultimately I’d like to host this server on an embedded device like a
+<a href="http://www.raspberrypi.org/">Raspberry Pi</a>, <a href="http://soekris.com/">Soekris</a>, or <a href="https://www.gumstix.com/">Gumstix</a>.  To make it easier to
+deploy on these platforms I’m working towards a pure JavaScript
+implementation.</p>
+
+<p>While not the most direct solution, it has a number of benefits:</p>
+
+<ul>
+  <li>Provides a permanent solution that is uncoupled from our chosen laptop
+operating systems.</li>
+  <li>Gives me the opportunity to learn more about node.js, JavaScript, and
+some new (to me) protocols.  I’d rather learn about these things than
+configuration files.</li>
+  <li>Allows me to contribute some code and get more involved with the node.js
+community.</li>
+  <li>Could potentially provide a foundation for integrating any number of legacy
+devices and applications.  There are undoubtedly small business and
+enterprise IT shops trying to figure out how to tie their aging, legacy
+equipment into fancy new cloud services.  Perhaps this code will be helpful.</li>
+</ul>
+
+<p>I figure as long as I am starting a project, I might as well start a blog as
+well.  While all the code is hosted on <a href="http://www.github.com/wanderview">GitHub</a>, I’ll periodically post
+more updates on my progress here.  The next post will be coming soon and will
+cover proxying NetBIOS sessions using node.js.</p>
+
+]]></content>
+  </entry>
+  
+  
+</feed>

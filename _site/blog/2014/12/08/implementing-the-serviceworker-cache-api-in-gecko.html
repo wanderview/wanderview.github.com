@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.4.0 -->
+<title>Implementing the Service Worker Cache API in Gecko | wanderview</title>
+<meta name="generator" content="Jekyll v3.7.3" />
+<meta property="og:title" content="Implementing the Service Worker Cache API in Gecko" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="For the last few months I’ve been heads down, implementing the Service Worker Cache API in gecko. All the work to this point has been done on a project branch, but the code is finally reaching a point where it can land in mozilla-central. Before this can happen, of course, it needs to be peer reviewed. Unfortunately this patch is going to be large and complex. To ease the pain for the reviewer I thought it would be helpful to provide a high-level description of how things are put together." />
+<meta property="og:description" content="For the last few months I’ve been heads down, implementing the Service Worker Cache API in gecko. All the work to this point has been done on a project branch, but the code is finally reaching a point where it can land in mozilla-central. Before this can happen, of course, it needs to be peer reviewed. Unfortunately this patch is going to be large and complex. To ease the pain for the reviewer I thought it would be helpful to provide a high-level description of how things are put together." />
+<link rel="canonical" href="http://localhost:4000/blog/2014/12/08/implementing-the-serviceworker-cache-api-in-gecko.html" />
+<meta property="og:url" content="http://localhost:4000/blog/2014/12/08/implementing-the-serviceworker-cache-api-in-gecko.html" />
+<meta property="og:site_name" content="wanderview" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2014-12-08T00:43:00-05:00" />
+<script type="application/ld+json">
+{"description":"For the last few months I’ve been heads down, implementing the Service Worker Cache API in gecko. All the work to this point has been done on a project branch, but the code is finally reaching a point where it can land in mozilla-central. Before this can happen, of course, it needs to be peer reviewed. Unfortunately this patch is going to be large and complex. To ease the pain for the reviewer I thought it would be helpful to provide a high-level description of how things are put together.","@type":"BlogPosting","url":"http://localhost:4000/blog/2014/12/08/implementing-the-serviceworker-cache-api-in-gecko.html","headline":"Implementing the Service Worker Cache API in Gecko","dateModified":"2014-12-08T00:43:00-05:00","datePublished":"2014-12-08T00:43:00-05:00","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/blog/2014/12/08/implementing-the-serviceworker-cache-api-in-gecko.html"},"@context":"http://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="wanderview" /></head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">wanderview</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path fill="#424242" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+              <path fill="#424242" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484 h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+              <path fill="#424242" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/archive.html">Archive</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Implementing the Service Worker Cache API in Gecko</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2014-12-08T00:43:00-05:00" itemprop="datePublished">Dec 8, 2014
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p>For the last few months I’ve been heads down, implementing the Service Worker
+Cache API in gecko.  All the work to this point has been done on a <a href="https://hg.mozilla.org/projects/maple/file/tip/dom/cache">project
+branch</a>, but the code is finally reaching a point where it can land in
+mozilla-central.  Before this can happen, of course, it needs to be peer
+reviewed.  Unfortunately this patch is going to be large and complex.  To
+ease the pain for the reviewer I thought it would be helpful to provide a
+high-level description of how things are put together.</p>
+
+<!--more-->
+
+<p>If you are unfamiliar with Service Workers and its Cache API, I highly recommend
+reading the following excellent sources:</p>
+
+<ul>
+  <li><a href="http://jakearchibald.com/2014/offline-cookbook/">The Offline Cookbook</a> by <a href="https://twitter.com/jaffathecake">Jake Archibald</a></li>
+  <li><a href="http://www.html5rocks.com/en/tutorials/service-worker/introduction/">Introduction to Service Worker</a> by <a href="https://twitter.com/gauntface">Matt Gaunt</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorker_API/Using_Service_Workers">Using Service Workers</a> on MDN</li>
+  <li><a href="https://slightlyoff.github.io/ServiceWorker/spec/service_worker/index.html">Service Worker Spec</a></li>
+  <li><a href="https://fetch.spec.whatwg.org/">Fetch Spec</a></li>
+</ul>
+
+<h1 id="building-blocks">Building Blocks</h1>
+<p>The Cache API is implemented in C++ based on the following Gecko primitives:</p>
+
+<ul>
+  <li>
+    <p><strong>WebIDL DOM Binding</strong></p>
+
+    <p>All new DOM objects in gecko now use our new <a href="https://developer.mozilla.org/en-US/docs/Mozilla/WebIDL_bindings">WebIDL bindings</a>.</p>
+  </li>
+  <li>
+    <p><strong>PBackground IPC</strong></p>
+
+    <p><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=956218">PBackground</a> is an IPC facility that connects a child actor to a parent
+  actor.  The parent actor is always in the parent process.  PBackground,
+  however, allows the child actor to exist in either a remote child content
+  process or within the same parent process.  This allows us to build
+  services that support both <a href="https://wiki.mozilla.org/Electrolysis">electrolysis</a> (e10s) and our more traditional
+  single process model.</p>
+
+    <p>Another advantage of PBackground is that the IPC calls are handled by a
+  worker thread rather than the parent process main thread.  This helps
+  avoid stalls due to other main thread work.</p>
+  </li>
+  <li>
+    <p><strong>Quota Manager</strong></p>
+
+    <p><a href="http://dxr.mozilla.org/mozilla-central/source/dom/quota/QuotaManager.h">Quota Manager</a> is responsible for managing the disk space used by web
+  content.  It determines when quota limits have been reached and will
+  automatically delete old data when necessary.</p>
+  </li>
+  <li>
+    <p><strong>SQLite</strong></p>
+
+    <p><a href="https://developer.mozilla.org/en-US/docs/Storage">mozStorage</a> is an API that provides access to an SQLite database.</p>
+  </li>
+  <li>
+    <p><strong>File System</strong></p>
+
+    <p>Finally, the Cache uses raw files in the file system.</p>
+  </li>
+</ul>
+
+<h1 id="alternatives">Alternatives</h1>
+<p>We did consider a couple alternatives to implementing a new storage engine for
+Cache.  Mainly, we thought about using the existing <strong>HTTP cache</strong> or building
+on top of <strong>IndexedDB</strong>.  For various reasons, however, we chose to build
+something new using these primitives instead.  Ultimately it came down to the
+Cache spec not quite lining up with these solutions.</p>
+
+<p>For example, the HTTP cache has an optimization where it only stores a single
+response for a given URL. In contrast, the Cache API spec requires that multiple
+Responses can be stored per-URL based on VARY headers, multiple Cache objects,
+etc.  In addition, the HTTP cache doesn’t use the quota management system and
+Cache must use the quota system.</p>
+
+<p>IndexedDB, on the other hand, is based on structured cloning which doesn’t
+currently support streaming data.  Given that Responses could be quite large
+and come in from the network slowly, we thought streaming was a priority to
+reduce the amount of required memory.</p>
+
+<p>Also, while not a technical issue, IndexedDB was undergoing a significant
+rewrite at the time the Cache work began.  We felt that this would delay the
+Cache implementation.</p>
+
+<h1 id="10000-foot-view">10,000-Foot View</h1>
+<p>With those primitives in mind, the overall structure of the Cache implementation
+looks like this:</p>
+
+<p><img class="center-block" src="/images/cache-high-level-design.png" /></p>
+
+<p>Here we see from left-to-right:</p>
+
+<ul>
+  <li>
+    <p><strong>JS Script</strong></p>
+
+    <p>Web content running in a JavaScript context on the far left.  This could be
+  in a Service Worker, a normal Web Worker, or on the main thread.</p>
+  </li>
+  <li>
+    <p><strong>DOM Object</strong></p>
+
+    <p>The script calls into the C++ DOM object using the <a href="https://developer.mozilla.org/en-US/docs/Mozilla/WebIDL_bindings">WebIDL bindings</a>.
+  This layer does some argument validation and conversion, but is mostly just
+  a pass through to the other layers.  Since most of the Cache API is
+  asynchronous the DOM object also returns a <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise">Promise</a>.  A unique RequestId
+  is passed through to the Cache backend and is later used to find the Promise
+  on completion.</p>
+  </li>
+  <li>
+    <p><strong>Child and Parent IPC Actors</strong></p>
+
+    <p>The connection between the processes is represented by a child and a parent
+  actor.  These have a one-to-one correlation.  In the Cache API request
+  messages are sent from the child-to-parent and response messages are
+  sent back from the parent-to-child.  All of these messages are asynchronous
+  and non-blocking.</p>
+  </li>
+  <li>
+    <p><strong>Manager</strong></p>
+
+    <p>This is where things start to get a bit more interesting.  The Cache spec
+  requires each origin to get its own, unique CacheStorage instance.  This
+  is accomplished by creating a separate per-origin Manager object.  These
+  Manager objects can come and go as DOM objects are used and then garbage
+  collected, but there is only ever one Manager for each origin.</p>
+  </li>
+  <li>
+    <p><strong>Context</strong></p>
+
+    <p>When a Manager has a disk operation to perform it first needs to take a
+  number of stateful steps to configure the QuotaManager properly.  All of
+  this logic is wrapped up in what is called the Context.  I’ll go into
+  more detail on this later, but suffice it to say that the Context handles
+  handles setting up the QuotaManager and then scheduling Actions to occur
+  at the right time.</p>
+  </li>
+  <li>
+    <p><strong>Action</strong></p>
+
+    <p>An Action is essentially a command object that performs a set of IO
+  operations within a Context and then asynchronously calls back to the
+  Manager when they are complete.  There are many different Action objects,
+  but in general you can think of each Cache method, like <code class="highlighter-rouge">match()</code> or
+  <code class="highlighter-rouge">put()</code>, having its own Action.</p>
+  </li>
+  <li>
+    <p><strong>File System</strong></p>
+
+    <p>Finally, the Action objects access the file system through the SQLite
+  database, file streams, or the nsIFile interface.</p>
+  </li>
+</ul>
+
+<h1 id="closer-look">Closer Look</h1>
+<p>Lets take a closer look at some of the more interesting parts of the system.
+Most of the action takes place in the Manager and Context, so lets start
+there.</p>
+
+<h2 id="manager">Manager</h2>
+<p>As I mentioned above, the Cache spec indicates each origin should have its own
+isolated <code class="highlighter-rouge">caches</code> object.  This maps to a single Manager instance for all
+CacheStorage and Cache objects for scripts running in the same origin:</p>
+
+<p><img class="center-block" src="/images/cache-singleton-manager.png" /></p>
+
+<p>Its important that all operations for a single origin are routed through the
+same Manager because operations in different script contexts can interact with
+one another.</p>
+
+<p>For example, lets consider the following CacheStorage method calls being
+executed by scripts running in two separate child processes.</p>
+
+<ol>
+  <li>Process 1 calls <code class="highlighter-rouge">caches.open('foo')</code>.</li>
+  <li>Process 1’s promise resolves with a Cache object.</li>
+  <li>Process 2 calls <code class="highlighter-rouge">caches.delete('foo')</code>.</li>
+</ol>
+
+<p>At this point process 1 has a Cache object that has been removed from the
+<code class="highlighter-rouge">caches</code> CacheStorage index.  Any additional calls to <code class="highlighter-rouge">caches.open('foo')</code>
+will create a new Cache object.</p>
+
+<p>But how should the Cache returned to Process 1 behave?  It’s a bit poorly
+defined in the spec, but the current interpretation is that it should behave
+normally.  The script in process 1 should continue to be able to access
+data in the Cache using <code class="highlighter-rouge">match()</code>.  In addition, it should be able to store
+A value using <code class="highlighter-rouge">put()</code>, although this is somewhat pointless if the Cache is
+not in <code class="highlighter-rouge">caches</code> anymore.  In the future, a <code class="highlighter-rouge">caches.put()</code> call may be added
+to let a Cache object to be re-inserted into the CacheStorage.</p>
+
+<p>In any case, the key here is that the <code class="highlighter-rouge">caches.delete()</code> call in process 2
+must understand that a Cache object is in use.  It cannot simply delete all
+the data for the Cache.  Instead we must reference count all uses of the
+Cache and only remove the data when they are all released.</p>
+
+<p>The Manager is the central place where all of this reference tracking is
+implemented and these races are resolved.</p>
+
+<p>A similar issue can happen with <code class="highlighter-rouge">cache.match(req)</code> and <code class="highlighter-rouge">cache.delete(req)</code>.  If
+the matched Response is still referenced, then the body data file needs to
+remain available for reading.  Again, the Manager handles this by tracking
+outstanding references to open body files.  This is actually implemented by using
+an additional actor called a StreamControl which will be shown in the
+<code class="highlighter-rouge">cache.match()</code> trace below.</p>
+
+<h2 id="context">Context</h2>
+<p>There are a number of stateful rules that must be followed in order to use the
+QuotaManager.  The Context is designed to implement these rules in a way that
+hides the complexity from the rest of the Cache as much as possible.</p>
+
+<p>Roughly the rules are:</p>
+
+<ol>
+  <li>First, we must extract various information from the <code class="highlighter-rouge">nsIPrincipal</code> by calling
+<code class="highlighter-rouge">QuotaManager::GetInfoFromPrincipal()</code> on the main thread.</li>
+  <li>Next, the Cache must call <code class="highlighter-rouge">QuotaManager::WaitForOpenAllowed()</code> on the main
+thread.  A callback is provided so that we can be notified when the open is
+permitted.  This callback occurs on the main thread.</li>
+  <li>Once we receive the callback we must next call
+<code class="highlighter-rouge">QuotaManager::EnsureOriginIsInitialized()</code> on the QuotaManager IO thread.
+This returns a pointer to the origin-specific directory in which we should
+store all our files.</li>
+  <li>The Cache code is now free to interact with the file system in the directory
+retrieved in the last step.  These file IO operations can take place on any
+thread.  There are some small caveats about using QuotaManager specific APIs
+for SQLite and file streams, but for the most part these simply require
+providing information from the <code class="highlighter-rouge">GetInfoFromPrincipal()</code> call.</li>
+  <li>Once all file operations are complete we must call
+<code class="highlighter-rouge">QuotaManager::AllowNextSynchronizedOp()</code> on the main thread.  All file streams
+and SQLite database connections must be closed before making this call.</li>
+</ol>
+
+<p>The Context object functions like a reference counted <a href="http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization">RAII</a>-style object.  It
+automatically executes steps 1 to 3 when constructed.  When the Context object’s
+reference count drops to zero, its destructor runs and it schedules the
+<code class="highlighter-rouge">AllowNextSynchronzedOp()</code> to run on the main thread.</p>
+
+<p>Note, while it appears the <code class="highlighter-rouge">GetInfoFromPrincipal()</code> call in step 1 could be
+performed once and cached, we actually can’t do that.  Part of extracting
+the information is querying the current permissions for the principal.  Its
+possible these can change over time.</p>
+
+<p>In theory, we could perform the <code class="highlighter-rouge">EnsureOriginIsInitialized()</code> call in step 3 only
+once if we also implemented the <code class="highlighter-rouge">nsIOfflineStorage</code> interface.  This interface
+would allow the QuotaManager to tell us to shutdown when the origin directory
+needs to be deleted.</p>
+
+<p>Currently the Cache does not do this, however, because the <code class="highlighter-rouge">nsIOfflineStorage</code>
+interface is expected to change significantly in the near future.  Instead, Cache
+simply calls the <code class="highlighter-rouge">EnsureOriginIsInitialized()</code> method each time to re-create the
+directory if necessary.  Once the API stabilizes the Cache will be updated to
+receive all such notifications from QuotaManager.</p>
+
+<p>An additional consequence of not getting the <code class="highlighter-rouge">nsIOfflineStorage</code> callbacks is
+that the Cache must proactively call <code class="highlighter-rouge">QuotaManager::AllowNextSynchronizedOp()</code>
+so that the next QuotaManager client for the origin can do work.</p>
+
+<p>Given the <a href="http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization">RAII</a>-style life cycle, this is easily achieved by simply having the
+Action objects hold a reference to the Context until they complete.  The
+Manager has a raw pointer to the Context that is cleared when it destructs.  If
+there is no more work to be done, the Context is released and step 5 is
+performed.</p>
+
+<p>Once the new <code class="highlighter-rouge">nsIOfflineStorage</code> API callbacks are implemented the Cache will
+be able to keep the Context open longer.  Again, this is relatively easy and
+simply needs the Manager to hold a strong reference to the Context.</p>
+
+<h2 id="streams-and-ipc">Streams and IPC</h2>
+<p>Since mobile platforms are a key target for Service Workers, the Cache API needs
+to be memory efficient.  RAM is often the most constraining resource on these
+devices.  To that end, our implementation should use streaming whenever possible
+to avoid holding large buffers in memory.</p>
+
+<p>In gecko this is essentially implemented by a collection of classes that
+implement the <code class="highlighter-rouge">nsIInputStream</code> interface.  These streams are pretty
+straightforward to use in normal code, but what happens when we need to serialize
+a stream across IPC?</p>
+
+<p>The answer depends on the type of stream being serialized.  We have a couple
+existing solutions:</p>
+
+<ul>
+  <li>Streams created for a flat memory buffer are simply copied across.</li>
+  <li>Streams backed by a file have their file descriptor <code class="highlighter-rouge">dup()</code>‘d and passed
+across.  This allows the other process to read the file directly without any
+immediate memory impact.</li>
+</ul>
+
+<p>Unfortunately, we do not have a way to serialize an <code class="highlighter-rouge">nsIPipe</code> across IPC without
+completely buffering it first.  This is important for Cache, because this is the
+type of stream we receive from a <code class="highlighter-rouge">fetch()</code> Response object.</p>
+
+<p>To solve this, Kyle Huey is implementing a new <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1093357">CrossProcessPipe</a> that will send
+the data across the IPC boundary in chunks.</p>
+
+<p>In this particular case we will be sending all the fetched
+Response data from the parent-to-child when the <code class="highlighter-rouge">fetch()</code> is performed.  If the
+Response is passed to <code class="highlighter-rouge">Cache.put()</code>, then the data is copied back to the parent.</p>
+
+<p>You may be asking, “why do you need to send the <code class="highlighter-rouge">fetch()</code> data from the child to
+the parent process when doing a <code class="highlighter-rouge">cache.put()</code>?  Surely the parent process
+already has this data somewhere.”</p>
+
+<p>Unfortunately, this is necessary to avoid buffering potentially large Response
+bodies in the parent.  It’s imperative that the parent process never runs out of
+memory.  One day we may be able to open the file descriptor in the parent,
+<code class="highlighter-rouge">dup()</code> it to the child, and then write the data directly from the child process,
+but currently this is not possible with the current Quota Manager.</p>
+
+<h2 id="disk-schema">Disk Schema</h2>
+<p>Finally, that brings us to a discussion of how the data is actually stored on
+disk.  It basically breaks down like this:</p>
+
+<ul>
+  <li>Body data for both Requests and Responses are stored directly in individual
+<a href="https://code.google.com/p/snappy/">snappy</a> compressed files.</li>
+  <li>All other Request and Response data are stored in SQLite.</li>
+</ul>
+
+<p>I know some people <a href="https://wiki.mozilla.org/Performance/Avoid_SQLite_In_Your_Next_Firefox_Feature">discourage using SQLite</a>, but I chose it for a few
+reasons:</p>
+
+<ol>
+  <li>SQLite provides transactional behavior.</li>
+  <li>SQLite is a well-tested system with known caveats and performance
+characteristics.</li>
+  <li>SQL provides a flexible query engine to implement and fine tune the Cache
+matching algorithm.</li>
+</ol>
+
+<p>In this case I don’t think serializing all of the Cache metadata into a flat
+file, as suggested by that wiki page, would be a good solution here.  In general,
+only a small subset of the data will be read or write on each operation.  In
+addition, we don’t want to require reading the entire dataset into memory.
+Also, for expected Cache usage, the data should typically be read-mostly with
+fewer writes over time.  Data will not be continuously appended to the database.
+For these reasons I’ve chosen to go with SQLite while understanding the risks
+and pitfalls.</p>
+
+<p>I plan to mitigate fragmentation by performing regular maintenance.  Whenever
+a row is deleted from or inserted into a table a counter will be updated in a
+flat file.  When the Context opens it will examine this counter and perform a
+VACUUM if it’s larger than a configured constant.  The constant will of course
+have to be fine-tuned based on real world measurements.</p>
+
+<p>Simple marker files will also be used to note when a Context is open.  If the
+browser is killed with a Context open, then a scrubbing process will be
+triggered the next time that origin accesses <code class="highlighter-rouge">caches</code>.  This will look for
+orphaned Cache and body data files.</p>
+
+<p>Finally, the bulk of the SQLite specific code is isolated in two classes;
+<code class="highlighter-rouge">DBAction.cpp</code> and <code class="highlighter-rouge">DBSchema.cpp</code>.  If we find SQLite is not performant
+enough, it should be straightforward to replace these files with another
+solution.</p>
+
+<h1 id="detailed-trace">Detailed Trace</h1>
+<p>Now that we have the lay of the land, lets trace what happens in the Cache when
+you do something like this:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>// photo by leg0fenris: https://www.flickr.com/photos/legofenris/
+var troopers = 'blob:https://mdn.github.io/6d4a4e7e-0b37-c342-81b6-c031a4b9082c'
+
+var legoBox;
+Promise.all([
+  fetch(troopers),
+  caches.open('legos')
+]).then(function(results) {
+  var response = results[0];
+  legoBox = results[1];
+  return legoBox.put(troopers, response);
+}).then(function() {
+  return legoBox.match(troopers);
+}).then(function(response) {
+  // invade rebel base
+});
+</code></pre></div></div>
+
+<p>While it might seem the first Cache operation is <code class="highlighter-rouge">caches.open()</code>, we actually
+need to trace what happens when <code class="highlighter-rouge">caches</code> is touched.  When the <code class="highlighter-rouge">caches</code>
+attribute is first accessed on the global we create the CacheStorage DOM object
+and IPC actors.</p>
+
+<p><img class="center-block" src="/images/cache-create-actor.png" /></p>
+
+<p>I’ve numbered each step in order to show the sequence of events.  These steps
+are roughly:</p>
+
+<ol>
+  <li>The global WebIDL binding for <code class="highlighter-rouge">caches</code> creates a new CacheStorage object
+and returns it immediately to the script.</li>
+  <li>Asynchronously, the CacheStorage object creates a new child IPC actor.  Since
+this may not complete immediately, any requests coming in will be queued
+until actor is ready.  Of course, since all the operations use Promises, this
+queuing is transparent to the content script.</li>
+  <li>The child actor in turn sends a message to the parent process to create a
+corresponding parent actor.  This message includes the nsIPrincipal
+describing the content script’s origin and other identifying information.</li>
+  <li>Before permitting any actual work to take place, the principal provided to
+the actor must be verified.  For various reasons this can only be done on
+the main thread.  So an asynchronous operation is triggered to examine
+the principal and any CacheStorage operations coming in are queued.</li>
+  <li>Once the principal is verified we return to the PBackground worker thread.</li>
+  <li>Assuming verification succeeded, then the origin’s Manager can now be
+accessed or created.  (This is actually deferred until the first operation,
+though.)  Any pending CacheStorage operations are immediately executed.</li>
+</ol>
+
+<p>Now that we have the <code class="highlighter-rouge">caches</code> object we can get on with the <code class="highlighter-rouge">open()</code>.  This
+sequence of steps is more complex:</p>
+
+<p><img class="center-block" src="/images/cache-open-sequence.png" /></p>
+
+<p>There are a lot more steps here.  To avoid making this blog post any more
+boring than necessary, I’ll focus on just the interesting ones.</p>
+
+<p>As with the creation trace above, <strong>steps 1 to 4</strong> are basically just passing
+the <code class="highlighter-rouge">open()</code> arguments across to the Manager.  Your basic digital plumbing at
+work.</p>
+
+<p><strong>Steps 5 and 6</strong> make sure the Context exists and schedules an Action to
+run on the IO thread.</p>
+
+<p>Next, in <strong>step 7</strong>, the Action will perform the actual work involved.  It
+must find the Cache if it already exists or create a new Cache.  This basically
+involves reading and writing an entry in the SQLite database.  The result is
+a unique CacheId.</p>
+
+<p><strong>Steps 8 to 11</strong> essentially just return the CacheId back to the actor layer.</p>
+
+<p>If this was the last Action, then the Context is released in <strong>step 10</strong>.</p>
+
+<p>At this point we need to create a new parent actor for the CacheId.  This Cache
+actor will be passed back to the child process where it gets a child actor.
+Finally a Cache DOM object is constructed and used to resolve the Promise
+returned to the JS script in first step.  All of this occurs in <strong>steps 12 to
+17</strong>.</p>
+
+<p>On the off chance you’re still reading this section, the script next performs
+a <code class="highlighter-rouge">put()</code> on the cache:</p>
+
+<p><img class="center-block" src="/images/cache-put-sequence.png" /></p>
+
+<p>This trace looks similar to the last one, with the main difference occurring in the
+Action on the right.  While this is true, its important to note that the
+IPC serialization in this case includes a data stream for the Response body.
+So we might be creating a CrossProcessPipe actor to copy data across in chunks.</p>
+
+<p>With that in mind the Action needs to do the following:</p>
+
+<ul>
+  <li>Stream body data to files on disk.  This happens asynchronously on the IO
+thread.  The Action and the Context are kept alive this entire time.</li>
+  <li>Update the SQLite database to reflect the new Request/Response pair with
+a file name pointer to the body.</li>
+</ul>
+
+<p>All of the steps back to the child process are essentially just there to indicate
+completion.  The <code class="highlighter-rouge">put()</code> operation resolves undefined in the success case.</p>
+
+<p>Finally the script can use <code class="highlighter-rouge">match()</code> to read the data back out of the Cache:</p>
+
+<p><img class="center-block" src="/images/cache-match-sequence.png" /></p>
+
+<p>In this trace the Action must first query the SQLite tables to determine if
+the Request exists in the Cache.  If it does, then it opens a stream to the
+body file.</p>
+
+<p>Its important to note, again, that this is just opening a stream.  The Action
+is only accessing the file system directory structure and opening a file
+descriptor to the body.  Its not actually reading any of the data for the
+body yet.</p>
+
+<p>Once the matched Response data and body file stream are passed back to the
+parent actor, we must create an extra actor for the stream.  This actor is
+then passed back to the child process and used to create a ReadStream.</p>
+
+<p>A ReadStream is a wrapper around the body file stream.  This wrapper will
+send a message back to the parent whenever the stream is closed.  In addition,
+it allows the Manager to signal the stream that a shutdown is occurring and
+the stream should be immediately closed.</p>
+
+<p>This extra call back to the parent process on close is necessary to allow
+the Manager to reference track open streams and hold the Context open until
+all the streams are closed.</p>
+
+<p>The body file stream itself is serialized back to the child process by
+dup()’in the file descriptor opened by the Action.</p>
+
+<p>Ultimately the body file data is read from the stream when the content script
+calls <code class="highlighter-rouge">Response.text()</code> or one of the other body consumption methods.</p>
+
+<h1 id="todo">TODO</h1>
+<p>Of course, there is still a lot to do.  While we are going to try to land the
+current implementation on mozilla-central, a number of issues will need to
+be resolved in the near future.</p>
+
+<ol>
+  <li>SQLite maintenance must be implemented.  As I mentioned above, I have a
+plan for how this will work, but it has not been written yet.</li>
+  <li>Stress testing must be performed to fine tune the SQLite schema and
+configuration.</li>
+  <li>Files should be de-duplicated within a single origin’s CacheStorage.  This
+will be important for efficiently supporting some expected uses of the
+Cache API.  (De-duplication beyond the same origin will require expanded
+support from the QuotaManager and is unlikely to occur in the near future.)</li>
+  <li>Request and Response <code class="highlighter-rouge">clone()</code> must be improved.  Currently a <code class="highlighter-rouge">clone()</code>
+call results in the body data being copied.  In general we should be able
+to avoid almost all copying here, but it will require some work.  See
+<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1100398">bug 1100398</a> for more details.</li>
+  <li>Telemetry should be added so that we can understand how the Cache is
+being used.  This will be important for improving the performance of the
+Cache over time.</li>
+</ol>
+
+<h1 id="conclusion">Conclusion</h1>
+<p>While the Cache implementation is sure to change, this is where we are today.
+We want to get Cache and the other Service Worker bits off of our project branch
+and into mozilla-central as soon as possible so other people can start testing
+with them.  Reviewing the Cache implementation is an important step in that
+process.</p>
+
+<p>If you would like to follow along please see <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=940273">bug 940273</a>.  As always, feedback
+is welcome by email or on <a href="https://twitter.com/wanderview">twitter</a>.</p>
+
+
+  </div><a class="u-url" href="/blog/2014/12/08/implementing-the-serviceworker-cache-api-in-gecko.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">wanderview</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">wanderview</li><li><a class="u-email" href="mailto:ben@wanderview.com">ben@wanderview.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#github"></use></svg> <span class="username">wanderview</span></a></li><li><a href="https://toot.cafe/@wanderview"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#mastodon"></use></svg> <span class="username">wanderview</span></a></li><li><a href="/feed.xml"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#rss"></use></svg> <span>subscribe</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>My name is Ben Kelly.  I&#39;m a software engineer working on the DOM team at Mozilla.</p>
+      </div>
+    </div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
