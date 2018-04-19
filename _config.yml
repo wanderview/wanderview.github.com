@@ -40,7 +40,7 @@ plugins:
 
 collections:
   hidden:
-    permalink: /blog/:year/:month/:day/:title:output_ext
+    permalink: /blog/:year/:month/:day/:title/
     output: true
 
 # Exclude from processing.
