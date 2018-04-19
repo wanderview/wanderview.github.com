@@ -1,9 +1,31 @@
 <script>
-if (navigator.serviceWorker) {
-  navigator.serviceWorker.register("sw.js").then(swr => {
+
+async function registerServiceWorker() {
+  try {
+    if (!navigator.serviceWorker) {
+      console.log('===> Service workers not supported.');
+      return;
+    }
+
+    const script = new URL('/sw.js', window.location);
+    const scope = new URL('/', window.location);
+
+    if (navigator.serviceWorker.controller &&
+        navigator.serviceWorker.controller.scriptURL === script.href) {
+      console.log('===> Service worker already registered.');
+      return;
+    }
+
+    let swr = await navigator.serviceWorker.register(script, { scope });
     console.log('===> Registered service worker.');
-  }).catch(e => {
-    console.log('===> Failed to register service worker: ' + e);
-  })
+  } catch(e) {
+    console.log('===> Service worker processing failed: ' + e);
+  }
 }
+
+window.addEventListener('load', _ => {
+  let defer = 'requestIdleCallback' in self ? requestIdleCallback : setTimeout;
+  defer(registerServiceWorker);
+}, { once: true });
+
 </script>
