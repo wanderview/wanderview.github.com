@@ -4,7 +4,7 @@ title: "Patching Resources in Service Workers"
 date: 2015-10-13 10:30:00 -0400
 comments: false
 description: "A proof-of-concept to reduce network traffic during service worker updates."
-large-image: /images/upgrades-with-delta.png
+image: /images/upgrades-with-delta.png
 categories: [mozilla,serviceworker,dom,cache,fetch,ubsdiff,ubspatch]
 ---
 
