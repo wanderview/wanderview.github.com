@@ -36,6 +36,7 @@ show_excerpts: true
 header_pages:
   - archive.md
 plugins:
+  - jekyll-feed
 
 collections:
   hidden:
