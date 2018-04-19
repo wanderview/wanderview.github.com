@@ -32,6 +32,8 @@ rss: subscribe
 markdown: kramdown
 theme: minima
 show_excerpts: true
+header_pages:
+  - archive.md
 plugins:
 
 collections:
