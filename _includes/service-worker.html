@@ -1,0 +1,9 @@
+<script>
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.register("sw.js").then(swr => {
+    console.log('===> Registered service worker.');
+  }).catch(e => {
+    console.log('===> Failed to register service worker: ' + e);
+  })
+}
+</script>

@@ -2,4 +2,4 @@
 layout: page
 title: Offline and Content Unavailable
 ---
-{% img /images/wifi-1-bar-xxl.png %}
+<img src="/images/wifi-1-bar-xxl.png"/>
