@@ -13,7 +13,7 @@ reviewed.  Unfortunately this patch is going to be large and complex.  To
 ease the pain for the reviewer I thought it would be helpful to provide a
 high-level description of how things are put together.
 
-<!--more-->
+<!-- more -->
 
 If you are unfamiliar with Service Workers and its Cache API, I highly recommend
 reading the following excellent sources:

@@ -31,6 +31,7 @@ rss: subscribe
 # Build settings
 markdown: kramdown
 theme: minima
+excerpt_separator: "<!-- more -->"
 show_excerpts: true
 header_pages:
   - archive.md
