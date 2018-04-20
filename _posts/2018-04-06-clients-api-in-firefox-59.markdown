@@ -74,7 +74,7 @@ Ever since then Firefox has limped along in a "mostly compatible" mode:
 4. The Clients API can only observe and control windows and workers within
    the same process running the service worker script.
 
-*insert diagram*
+<img class="center-block" src="/images/service-workers-legacy-e10s.svg"/>
 
 Changing the design of the Clients API to support multiple processes was the
 first step in fixing this situation.

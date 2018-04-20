@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="493px" height="467px" viewBox="0 0 493 467" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 49.1 (51147) - http://www.bohemiancoding.com/sketch -->
+    <title>Slice</title>
+    <desc>Created with Sketch.</desc>
+    <defs>
+        <rect id="path-1" x="36" y="83" width="46" height="46"></rect>
+        <rect id="path-2" x="43" y="93" width="46" height="46"></rect>
+        <rect id="path-3" x="54" y="106" width="46" height="46"></rect>
+        <rect id="path-4" x="36" y="186" width="46" height="46"></rect>
+        <rect id="path-5" x="36" y="266" width="46" height="46"></rect>
+        <rect id="path-6" x="305" y="83" width="46" height="46"></rect>
+        <rect id="path-7" x="312" y="93" width="46" height="46"></rect>
+        <rect id="path-8" x="323" y="106" width="46" height="46"></rect>
+        <rect id="path-9" x="305" y="186" width="46" height="46"></rect>
+        <rect id="path-10" x="305" y="266" width="46" height="46"></rect>
+        <rect id="path-11" x="36" y="395" width="427" height="46"></rect>
+    </defs>
+    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect id="Rectangle" stroke="#979797" x="25.5" y="19.5" width="180" height="313"></rect>
+        <rect id="Rectangle-Copy" stroke="#979797" x="25.5" y="346.5" width="449" height="105"></rect>
+        <text id="Content-Process" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="60.1650391" y="46">Content Process</tspan>
+        </text>
+        <text id="Parent-Process" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="189.827148" y="376">Parent Process</tspan>
+        </text>
+        <text id="Windows-/-Workers" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="116.005859" y="96">Windows /</tspan>
+            <tspan x="122.397461" y="112">Workers</tspan>
+        </text>
+        <text id="Service-Worker-Manag" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="89.4545898" y="199">Service Worker</tspan>
+            <tspan x="109.374512" y="215">Managfer</tspan>
+        </text>
+        <text id="Service-Worker" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="89.4545898" y="279">Service Worker</tspan>
+        </text>
+        <g id="Rectangle-2">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-1"></use>
+            <rect stroke="#979797" stroke-width="1" x="36.5" y="83.5" width="45" height="45"></rect>
+        </g>
+        <g id="Rectangle-2-Copy">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-2"></use>
+            <rect stroke="#979797" stroke-width="1" x="43.5" y="93.5" width="45" height="45"></rect>
+        </g>
+        <g id="Rectangle-2-Copy-2">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-3"></use>
+            <rect stroke="#979797" stroke-width="1" x="54.5" y="106.5" width="45" height="45"></rect>
+        </g>
+        <g id="Rectangle-2-Copy-3">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-4"></use>
+            <rect stroke="#979797" stroke-width="1" x="36.5" y="186.5" width="45" height="45"></rect>
+        </g>
+        <g id="Rectangle-2-Copy-4">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-5"></use>
+            <rect stroke="#979797" stroke-width="1" x="36.5" y="266.5" width="45" height="45"></rect>
+        </g>
+        <rect id="Rectangle-Copy-2" stroke="#979797" x="294.5" y="19.5" width="180" height="313"></rect>
+        <text id="Content-Process-Copy" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="329.165039" y="46">Content Process</tspan>
+        </text>
+        <text id="Windows-/-Workers-Copy" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="385.005859" y="96">Windows /</tspan>
+            <tspan x="391.397461" y="112">Workers</tspan>
+        </text>
+        <text id="Service-Worker-Manag-Copy" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="358.45459" y="199">Service Worker</tspan>
+            <tspan x="378.374512" y="215">Managfer</tspan>
+        </text>
+        <text id="Service-Worker-Copy" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="358.45459" y="279">Service Worker</tspan>
+        </text>
+        <g id="Rectangle-2-Copy-10">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-6"></use>
+            <rect stroke="#979797" stroke-width="1" x="305.5" y="83.5" width="45" height="45"></rect>
+        </g>
+        <g id="Rectangle-2-Copy-9">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-7"></use>
+            <rect stroke="#979797" stroke-width="1" x="312.5" y="93.5" width="45" height="45"></rect>
+        </g>
+        <g id="Rectangle-2-Copy-8">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-8"></use>
+            <rect stroke="#979797" stroke-width="1" x="323.5" y="106.5" width="45" height="45"></rect>
+        </g>
+        <g id="Rectangle-2-Copy-7">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-9"></use>
+            <rect stroke="#979797" stroke-width="1" x="305.5" y="186.5" width="45" height="45"></rect>
+        </g>
+        <g id="Rectangle-2-Copy-6">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-10"></use>
+            <rect stroke="#979797" stroke-width="1" x="305.5" y="266.5" width="45" height="45"></rect>
+        </g>
+        <g id="Rectangle-2-Copy-5">
+            <use fill="#D8D8D8" fill-rule="evenodd" xlink:href="#path-11"></use>
+            <rect stroke="#979797" stroke-width="1" x="36.5" y="395.5" width="426" height="45"></rect>
+        </g>
+        <text id="Network-/-HTTP-Cache" font-family="ArialRoundedMTBold, Arial Rounded MT Bold" font-size="14" font-weight="normal" fill="#000000">
+            <tspan x="164.145996" y="422">Network / HTTP Cache</tspan>
+        </text>
+    </g>
+</svg>
