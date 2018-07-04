@@ -16,7 +16,7 @@
 title: wanderview
 email: ben@wanderview.com
 description: >- # this means to ignore newlines until "baseurl:"
-  My name is Ben Kelly.  I'm a software engineer working on the DOM team at Mozilla.
+  My name is Ben Kelly.  I'm a software engineer.
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "https://blog.wanderview.com" # the base hostname & protocol for your site, e.g. http://example.com
 permalink: /blog/:year/:month/:day/:title/
