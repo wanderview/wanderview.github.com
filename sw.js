@@ -64,7 +64,7 @@ function networkFirst(evt) {
     waitUntilResolve(cache.put(evt.request, response.clone()));
     return response;
   }).catch(function(e) {
-    return cache.match(evt.request, { ignoreSearch: true });
+    return cache.match(evt.request);
   }).then(function(response) {
     // Always resolve the waitUntil promise. This is a no-op if we already
     // resolved the promise with cache.put() above.
@@ -91,7 +91,7 @@ function cacheFirst(evt) {
   var cache;
   evt.respondWith(caches.open(version).then(function(c) {
     cache = c;
-    return cache.match(evt.request, { ignoreSearch: true });
+    return cache.match(evt.request);
   }).then(function(response) {
     return response || fetch(evt.request).then(function(response) {
       waitUntilResolve(cache.put(evt.request, response.clone()));
