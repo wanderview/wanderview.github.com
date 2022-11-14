@@ -34,6 +34,9 @@ markdown: kramdown
 remote_theme: jekyll/minima
 minima:
   skin: dark
+  social_links:
+    - { platform: github,  user_url: "https://github.com/wanderview" }
+    - { platform: mastodon, user_url: "https://toot.cafe/@wanderview" }
 excerpt_separator: "<!-- more -->"
 show_excerpts: true
 header_pages:
