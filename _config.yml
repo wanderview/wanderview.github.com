@@ -30,7 +30,10 @@ rss: subscribe
 
 # Build settings
 markdown: kramdown
-theme: minima
+#theme: minima
+remote_theme: jekyll/minima
+minima:
+  skin: dark
 excerpt_separator: "<!-- more -->"
 show_excerpts: true
 header_pages:
