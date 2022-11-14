@@ -32,8 +32,8 @@ rss: subscribe
 markdown: kramdown
 #theme: minima
 remote_theme: jekyll/minima
-minima:
-  skin: dark
+#minima:
+#  skin: dark
 excerpt_separator: "<!-- more -->"
 show_excerpts: true
 header_pages:
