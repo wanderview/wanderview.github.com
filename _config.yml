@@ -57,5 +57,4 @@ exclude:
   - vendor/ruby/
   - old/
 
-include:
-  - .well-known/host-meta
+include: [ ".well-known" ]
