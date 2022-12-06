@@ -56,3 +56,6 @@ exclude:
   - vendor/gems/
   - vendor/ruby/
   - old/
+
+include:
+  - .well-known/host-meta
