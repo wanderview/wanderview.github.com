@@ -14,7 +14,7 @@ var version = prefix + '{{ site.time }}';
 // Resources needed to display our offline page.
 var offlineAssets = [
   '/offline/',
-  '/assets/main.css',
+  '/assets/css/styles.css',
   '/assets/minima-social-icons.svg',
   '/images/wifi-1-bar-xxl.png',
 ];
